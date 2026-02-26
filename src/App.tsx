@@ -6,26 +6,56 @@ import ChatBot from './components/ChatBot';
 import AdminPanel from './components/AdminPanel';
 
 export default function App() {
-  const [content, setContent] = useState<any>(null);
+  const [content, setContent] = useState<any>({
+    settings: {
+      whatsapp_number: "5511999999999",
+      address: "Rua Exemplo, 123",
+      hero_video: "https://oacqvijuafuzsbyyqdtt.supabase.co/storage/v1/object/public/barber-assets/gallery-video-1771970955047.MOV"
+    },
+    services: [
+      { name: "Corte Social", price: "R$ 35", desc: "Corte clássico e acabamento impecável" },
+      { name: "Barba Completa", price: "R$ 30", desc: "Toalha quente e barbear tradicional" },
+      { name: "Combo Premium", price: "R$ 60", desc: "Cabelo + Barba + Lavagem" }
+    ],
+    gallery: [
+      { url: "https://picsum.photos/seed/barber1/800/800" },
+      { url: "https://picsum.photos/seed/barber2/800/800" },
+      { url: "https://picsum.photos/seed/barber3/800/800" }
+    ],
+    video_gallery: [],
+    appointments: []
+  });
   const [isAdminOpen, setIsAdminOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Começa como falso para abrir direto
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<string>('');
   const [bookingForm, setBookingForm] = useState({ name: '', date: '', time: '' });
+  const [errorInfo, setErrorInfo] = useState<string>('');
 
   const fetchContent = async () => {
     try {
       const res = await fetch('/api/content');
+      if (!res.ok) throw new Error(`Erro: ${res.status}`);
       const data = await res.json();
-      setContent(data);
-    } catch (error) {
-      console.error("Error fetching content:", error);
-    } finally {
-      setIsLoading(false);
+      
+      // Only update if we actually got something useful
+      setContent((prev: any) => ({
+        settings: { ...prev.settings, ...(data.settings || {}) },
+        services: data.services && data.services.length > 0 ? data.services : prev.services,
+        gallery: data.gallery && data.gallery.length > 0 ? data.gallery : prev.gallery,
+        video_gallery: data.video_gallery && data.video_gallery.length > 0 ? data.video_gallery : prev.video_gallery,
+        appointments: data.appointments || prev.appointments
+      }));
+    } catch (error: any) {
+      console.error("Background fetch error:", error);
+      setErrorInfo(error.message);
     }
   };
 
   useEffect(() => {
+    window.onerror = (msg) => {
+      setErrorInfo(`Erro de Sistema: ${msg}`);
+    };
     fetchContent();
   }, []);
 
@@ -52,32 +82,36 @@ export default function App() {
     }
   };
 
-  if (isLoading || !content) {
-    return (
-      <div className="h-screen bg-zinc-950 flex items-center justify-center">
-        <Loader2 className="w-12 h-12 text-gold animate-spin" />
-      </div>
-    );
-  }
+  const settings = content?.settings || {
+    whatsapp_number: "5511999999999",
+    address: "Rua Exemplo, 123",
+    hero_video: "https://oacqvijuafuzsbyyqdtt.supabase.co/storage/v1/object/public/barber-assets/gallery-video-1771970955047.MOV"
+  };
+  const services = content?.services || [];
+  const gallery = content?.gallery || [];
+  
+  const WHATSAPP_URL = `https://wa.me/${settings?.whatsapp_number || "5511999999999"}`;
 
-  const { settings, services, gallery } = content;
-  const WHATSAPP_URL = `https://wa.me/${settings.whatsapp_number}`;
+  const displayServices = services;
+  const displayGallery = gallery;
+  const displayVideoGallery = content?.video_gallery || [];
 
   return (
-    <div className="min-h-screen font-sans selection:bg-gold selection:text-zinc-950 text-white overflow-x-hidden">
+    <div className="min-h-screen font-sans selection:bg-gold selection:text-zinc-950 text-white overflow-x-hidden bg-zinc-950">
       {/* Fixed Background Video */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
+      <div className="fixed inset-0 z-0 pointer-events-none bg-black">
         <video 
-          key={settings.hero_video}
+          key={settings?.hero_video}
           autoPlay 
           muted 
           loop 
           playsInline
-          className="w-full h-full object-cover opacity-70 scale-105"
+          className="w-full h-full object-cover opacity-100"
+          style={{ filter: 'brightness(0.6) contrast(1.1)' }}
         >
-          <source src={settings.hero_video} />
+          <source src={settings?.hero_video} />
         </video>
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/80" />
       </div>
 
       {/* Admin Panel Trigger */}
@@ -171,13 +205,18 @@ export default function App() {
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-40 bg-black/40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-black p-2 rounded border border-white/10">
-              <Scissors className="w-8 h-8 text-gold" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-serif text-xl font-bold tracking-tighter text-white italic leading-none">FONSECA</span>
-              <span className="text-[10px] text-gold tracking-[0.2em] font-bold">BARBEARIA</span>
+          <div className="flex items-center gap-4">
+            <img 
+              src="https://oacqvijuafuzsbyyqdtt.supabase.co/storage/v1/object/public/barber-assets/logo.png" 
+              alt="Fonseca Barber Club" 
+              className="h-16 w-auto brightness-110"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div className="flex flex-col logo-fallback hidden">
+              <span className="font-serif text-3xl font-bold tracking-tighter text-white italic leading-none">Fonseca</span>
+              <span className="text-[10px] text-gold tracking-[0.3em] font-bold uppercase">BARBER CLUB</span>
             </div>
           </div>
           
@@ -191,10 +230,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-6">
-            <div className="hidden sm:flex items-center gap-2 text-white/80">
-              <User className="w-5 h-5" />
-              <span className="text-sm font-medium">tech</span>
-            </div>
             <button 
               onClick={() => { setSelectedService('Geral'); setIsBookingOpen(true); }}
               className="bg-gold hover:bg-gold/90 text-black px-8 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-gold/20"
@@ -219,9 +254,9 @@ export default function App() {
               <span className="text-gold text-xs font-bold uppercase tracking-widest">Desde 2014</span>
             </div>
             
-            <h1 className="font-serif text-7xl md:text-9xl font-bold text-white mb-8 leading-[0.9]">
+            <h1 className="font-serif text-7xl md:text-9xl font-bold text-white mb-8 leading-[0.85] tracking-tighter">
               Estilo, Qualidade <br />
-              <span className="text-gold italic">e Tradição</span>
+              <span className="text-gold italic font-normal">e Tradição</span>
             </h1>
             
             <p className="text-white/70 text-lg md:text-xl mb-12 max-w-2xl leading-relaxed">
@@ -250,6 +285,41 @@ export default function App() {
               </motion.a>
             </div>
           </motion.div>
+        </div>
+      </section>
+
+      {/* Serviços Section */}
+      <section id="servicos" className="py-24 relative z-10 bg-zinc-950/50">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-5xl md:text-6xl font-bold text-white mb-4 italic">Nossos <span className="text-gold">Serviços</span></h2>
+            <p className="text-white/50 uppercase tracking-widest text-sm">Excelência em cada detalhe</p>
+          </div>
+          
+          <div className="grid md:grid-cols-3 gap-8">
+            {displayServices.map((service: any, i: number) => (
+              <motion.div 
+                key={i}
+                whileHover={{ y: -10 }}
+                className="bg-zinc-900/50 backdrop-blur-md border border-white/10 p-8 rounded-[32px] hover:border-gold/50 transition-all group"
+              >
+                <div className="flex justify-between items-start mb-6">
+                  <div className="bg-gold/10 p-4 rounded-2xl group-hover:scale-110 transition-transform">
+                    <Scissors className="w-8 h-8 text-gold" />
+                  </div>
+                  <span className="text-2xl font-bold text-gold">{service.price}</span>
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-3">{service.name}</h3>
+                <p className="text-white/50 mb-8 leading-relaxed">{service.description || service.desc}</p>
+                <button 
+                  onClick={() => { setSelectedService(service.name); setIsBookingOpen(true); }}
+                  className="w-full py-4 rounded-xl border border-gold/30 text-gold font-bold hover:bg-gold hover:text-black transition-all"
+                >
+                  Agendar Este
+                </button>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -340,7 +410,7 @@ export default function App() {
           
           {/* Image Gallery */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-24">
-            {gallery.map((item: any, i: number) => (
+            {displayGallery.map((item: any, i: number) => (
               <motion.div 
                 key={i}
                 whileHover={{ scale: 1.02 }}
@@ -360,14 +430,14 @@ export default function App() {
           </div>
 
           {/* Video Gallery */}
-          {content.video_gallery && content.video_gallery.length > 0 && (
+          {displayVideoGallery.length > 0 && (
             <div className="space-y-12">
               <div className="text-center">
                 <h3 className="text-3xl font-bold text-white mb-2 italic">Vídeos do <span className="text-gold">Clube</span></h3>
                 <p className="text-white/40">Confira a atmosfera do nosso espaço</p>
               </div>
               <div className="grid md:grid-cols-2 gap-8">
-                {content.video_gallery.map((item: any, i: number) => (
+                {displayVideoGallery.map((item: any, i: number) => (
                   <motion.div 
                     key={i}
                     whileHover={{ scale: 1.02 }}
@@ -533,7 +603,7 @@ export default function App() {
                   <MapPin className="w-10 h-10 text-gold" />
                 </div>
                 <h3 className="text-2xl font-bold">Localização</h3>
-                <p className="text-white/50">{settings.address}</p>
+                <p className="text-white/50">{settings?.address || "Rua Exemplo, 123"}</p>
                 <button className="border border-gold text-gold px-8 py-3 rounded-xl font-bold hover:bg-gold/10 transition-all">Ver Mapa</button>
               </div>
               
@@ -542,8 +612,8 @@ export default function App() {
                   <Phone className="w-10 h-10 text-gold" />
                 </div>
                 <h3 className="text-2xl font-bold">Telefone</h3>
-                <p className="text-white/50">{settings.whatsapp_number}</p>
-                <a href={`tel:${settings.whatsapp_number}`} className="border border-gold text-gold px-8 py-3 rounded-xl font-bold hover:bg-gold/10 transition-all inline-block">Ligar Agora</a>
+                <p className="text-white/50">{settings?.whatsapp_number || "5511999999999"}</p>
+                <a href={`tel:${settings?.whatsapp_number || "5511999999999"}`} className="border border-gold text-gold px-8 py-3 rounded-xl font-bold hover:bg-gold/10 transition-all inline-block">Ligar Agora</a>
               </div>
               
               <div className="text-center space-y-6">
@@ -588,23 +658,40 @@ export default function App() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 relative z-10 bg-black/80 border-t border-white/10 text-center">
+      <footer className="py-16 relative z-10 bg-black/90 border-t border-white/10 text-center">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <Scissors className="w-8 h-8 text-gold" />
-            <div className="flex flex-col text-left">
-              <span className="font-serif text-xl font-bold tracking-tighter text-white italic leading-none">FONSECA</span>
-              <span className="text-[10px] text-gold tracking-[0.2em] font-bold uppercase">Barbearia</span>
+          <div className="flex items-center justify-center mb-10">
+            <img 
+              src="https://oacqvijuafuzsbyyqdtt.supabase.co/storage/v1/object/public/barber-assets/logo.png" 
+              alt="Fonseca Barber Club" 
+              className="h-24 w-auto brightness-110"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div className="flex flex-col items-center footer-logo-fallback hidden">
+              <span className="font-serif text-4xl font-bold tracking-tighter text-white italic leading-none">Fonseca</span>
+              <span className="text-xs text-gold tracking-[0.4em] font-bold uppercase mt-1">BARBER CLUB</span>
             </div>
           </div>
           <p className="text-white/40 text-sm mb-6">
             © 2024 Fonseca Barber Club. Todos os direitos reservados. <br />
             Excelência em cada detalhe.
+            <span className="block text-[8px] mt-2 opacity-20">v1.1.3 | Premium Experience</span>
           </p>
           <div className="flex justify-center gap-6 text-white/40 mb-8">
             <a href="#" className="hover:text-gold transition-colors"><Instagram /></a>
             <a href="#" className="hover:text-gold transition-colors"><Facebook /></a>
           </div>
+          <button 
+            onClick={() => {
+              setErrorInfo('');
+              fetchContent();
+            }}
+            className="text-white/10 hover:text-gold text-[10px] uppercase tracking-widest transition-colors mr-4"
+          >
+            Atualizar Dados
+          </button>
           <button 
             onClick={() => setIsAdminOpen(true)}
             className="text-white/10 hover:text-gold text-[10px] uppercase tracking-widest transition-colors"

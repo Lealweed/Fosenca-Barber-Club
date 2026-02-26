@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Plus, Trash2, X, Image as ImageIcon, Video, Settings, Scissors, Calendar, Upload, Check, Clock } from 'lucide-react';
+import { Save, Plus, Trash2, X, Image as ImageIcon, Video, Settings, Scissors, Calendar, Upload, Check, Clock, Lock, LogOut, Mail, Key, Loader2 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const getSupabase = async () => {
@@ -39,6 +39,12 @@ interface AdminProps {
 }
 
 export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProps) {
+  const [user, setUser] = useState<any>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [authError, setAuthError] = useState('');
+  
   const [activeTab, setActiveTab] = useState<'config' | 'agenda'>('config');
   const [settings, setSettings] = useState(initialData.settings);
   const [services, setServices] = useState(initialData.services);
@@ -55,6 +61,56 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
   const videoInputRef = useRef<HTMLInputElement>(null);
   const galleryVideoInputRef = useRef<HTMLInputElement>(null);
   const galleryImageInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      try {
+        const supabase = await getSupabase();
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+      } catch (e) {
+        console.error("Auth check failed:", e);
+      }
+    };
+    checkUser();
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setAuthError('');
+    try {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      
+      if (error) throw error;
+      
+      // Check if it's the specific allowed user
+      if (data.user?.email !== 'techmasterpa@gmail.com') {
+        await supabase.auth.signOut();
+        throw new Error('Acesso restrito apenas ao administrador autorizado.');
+      }
+      
+      setUser(data.user);
+    } catch (error: any) {
+      setAuthError(error.message || 'Erro ao fazer login');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const supabase = await getSupabase();
+      await supabase.auth.signOut();
+      setUser(null);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -223,6 +279,71 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
     }
   };
 
+  if (!user) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-zinc-950 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-zinc-900 border border-gold/30 p-8 rounded-2xl shadow-2xl w-full max-w-md">
+          <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
+          
+          <div className="flex flex-col items-center mb-8">
+            <div className="bg-gold/10 p-4 rounded-full mb-4">
+              <Lock className="w-10 h-10 text-gold" />
+            </div>
+            <h2 className="text-2xl font-serif font-bold text-gold">Acesso Restrito</h2>
+            <p className="text-zinc-400 text-sm text-center mt-2">Identifique-se para acessar o painel administrativo.</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                <Mail className="w-3 h-3" /> E-mail
+              </label>
+              <input 
+                required
+                type="email" 
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 focus:border-gold outline-none text-white"
+                placeholder="seu@email.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                <Key className="w-3 h-3" /> Senha
+              </label>
+              <input 
+                required
+                type="password" 
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 focus:border-gold outline-none text-white"
+                placeholder="••••••••"
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-3 rounded-lg text-sm">
+                {authError}
+              </div>
+            )}
+
+            <button 
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full bg-gold text-zinc-950 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-gold/90 transition-all shadow-xl shadow-gold/20 disabled:opacity-50"
+            >
+              {isLoggingIn ? <Loader2 className="w-6 h-6 animate-spin" /> : <Check className="w-6 h-6" />}
+              Entrar no Painel
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[100] bg-zinc-950 flex flex-col overflow-hidden text-zinc-100">
       {/* Header */}
@@ -258,6 +379,13 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
               {isSaving ? 'Salvando...' : 'Salvar Alterações'}
             </button>
           )}
+          <button 
+            onClick={handleLogout}
+            className="p-2 hover:bg-red-500/10 text-red-500 rounded-full transition-all"
+            title="Sair"
+          >
+            <LogOut className="w-6 h-6" />
+          </button>
           <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full transition-all">
             <X className="w-8 h-8" />
           </button>
