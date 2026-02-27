@@ -2,7 +2,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Scissors, MapPin, Clock, Phone, Instagram, Facebook, MessageCircle, Star, Beer, Music, Gamepad2, Settings, Loader2, X, Calendar as CalendarIcon, User, ChevronRight, Zap, Trophy, Users, Award, Check } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import FloatingWhatsApp from './components/FloatingWhatsApp';
-import ChatBot from './components/ChatBot';
 import AdminPanel from './components/AdminPanel';
 
 export default function App() {
@@ -496,7 +495,6 @@ export default function App() {
 
       {/* Floating Elements */}
       <FloatingWhatsApp phoneNumber={settings?.whatsapp_number || "5511999999999"} />
-      <ChatBot />
 
       {/* Booking Modal */}
       <AnimatePresence>
