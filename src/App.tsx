@@ -26,7 +26,6 @@ export default function App() {
     appointments: []
   });
   const [isAdminOpen, setIsAdminOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false); // Começa como falso para abrir direto
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<string>('');
   const [bookingForm, setBookingForm] = useState({ name: '', date: '', time: '' });
@@ -114,565 +113,359 @@ export default function App() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/80" />
       </div>
 
-      {/* Admin Panel Trigger */}
-      <button 
-        onClick={() => setIsAdminOpen(true)}
-        className="fixed bottom-6 left-6 z-50 bg-zinc-900/80 backdrop-blur-md p-4 rounded-full border border-gold/30 text-gold hover:scale-110 transition-all shadow-2xl"
-        title="Painel Administrativo"
-      >
-        <Settings className="w-6 h-6" />
-      </button>
-
-      {/* Admin Panel */}
-      {isAdminOpen && (
-        <AdminPanel 
-          initialData={content} 
-          onClose={() => setIsAdminOpen(false)} 
-          onUpdate={fetchContent}
-        />
-      )}
-
-      {/* Booking Modal */}
-      <AnimatePresence>
-        {isBookingOpen && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsBookingOpen(false)}
-              className="absolute inset-0 bg-zinc-950/90 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-zinc-900 border border-gold/30 p-8 rounded-2xl shadow-2xl w-full max-w-md"
-            >
-              <button onClick={() => setIsBookingOpen(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white">
-                <X className="w-6 h-6" />
-              </button>
-              <h2 className="text-2xl font-serif font-bold text-gold mb-2">Agendar Horário</h2>
-              <p className="text-zinc-400 text-sm mb-6">Preencha os dados e finalize no WhatsApp.</p>
-              
-              <form onSubmit={handleBookingSubmit} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Seu Nome</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={bookingForm.name}
-                    onChange={e => setBookingForm({...bookingForm, name: e.target.value})}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 focus:border-gold outline-none text-white"
-                    placeholder="Ex: João Silva"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-2"><CalendarIcon className="w-3 h-3" /> Data</label>
-                    <input 
-                      required
-                      type="date" 
-                      value={bookingForm.date}
-                      onChange={e => setBookingForm({...bookingForm, date: e.target.value})}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 focus:border-gold outline-none text-white"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-3 h-3" /> Hora</label>
-                    <input 
-                      required
-                      type="time" 
-                      value={bookingForm.time}
-                      onChange={e => setBookingForm({...bookingForm, time: e.target.value})}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 focus:border-gold outline-none text-white"
-                    />
-                  </div>
-                </div>
-                <button 
-                  type="submit"
-                  className="w-full bg-whatsapp text-white py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-whatsapp/90 transition-all shadow-xl shadow-whatsapp/20"
-                >
-                  <MessageCircle className="w-6 h-6" />
-                  Finalizar no WhatsApp
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Navigation */}
-      <nav className="fixed top-0 w-full z-40 bg-black/40 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img 
-              src="https://oacqvijuafuzsbyyqdtt.supabase.co/storage/v1/object/public/barber-assets/logo.png" 
-              alt="Fonseca Barber Club" 
-              className="h-16 w-auto brightness-110"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <div className="flex flex-col logo-fallback hidden">
-              <span className="font-serif text-3xl font-bold tracking-tighter text-white italic leading-none">Fonseca</span>
-              <span className="text-[10px] text-gold tracking-[0.3em] font-bold uppercase">BARBER CLUB</span>
+      {/* Content Overlay */}
+      <div className="relative z-10">
+        {/* Header */}
+        <header className="fixed w-full top-0 z-50 bg-black/50 backdrop-blur-md border-b border-white/5">
+          <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gold rounded-full flex items-center justify-center">
+                <Scissors className="w-6 h-6 text-zinc-950" />
+              </div>
+              <span className="text-xl font-bold tracking-widest uppercase">Fonseca</span>
             </div>
-          </div>
-          
-          <div className="hidden lg:flex items-center gap-8 text-sm font-medium text-white/80">
-            <a href="#" className="hover:text-gold transition-colors">Início</a>
-            <a href="#servicos" className="hover:text-gold transition-colors">Serviços</a>
-            <a href="#planos" className="hover:text-gold transition-colors">Planos</a>
-            <a href="#galeria" className="hover:text-gold transition-colors">Galeria</a>
-            <a href="#contato" className="hover:text-gold transition-colors">Contato</a>
-            <button onClick={() => setIsAdminOpen(true)} className="hover:text-gold transition-colors">Admin</button>
-          </div>
-
-          <div className="flex items-center gap-6">
+            <nav className="hidden md:flex items-center gap-8 text-sm font-medium tracking-widest uppercase">
+              <a href="#services" className="hover:text-gold transition-colors">Serviços</a>
+              <a href="#experience" className="hover:text-gold transition-colors">Experiência</a>
+              <a href="#gallery" className="hover:text-gold transition-colors">Galeria</a>
+              <a href="#contact" className="hover:text-gold transition-colors">Contato</a>
+            </nav>
             <button 
-              onClick={() => { setSelectedService('Geral'); setIsBookingOpen(true); }}
-              className="bg-gold hover:bg-gold/90 text-black px-8 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-gold/20"
+              onClick={() => setIsBookingOpen(true)}
+              className="bg-gold text-zinc-950 px-6 py-2.5 rounded-full font-bold text-sm uppercase tracking-widest hover:bg-white transition-colors"
             >
-              Agendar Agora
+              Agendar
             </button>
           </div>
-        </div>
-      </nav>
+        </header>
 
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center pt-24">
-        <div className="max-w-7xl mx-auto px-6 w-full">
-          <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
-            className="max-w-3xl"
-          >
-            <div className="inline-flex items-center gap-2 bg-gold/10 border border-gold/30 px-4 py-2 rounded-full mb-8">
-              <Scissors className="w-4 h-4 text-gold" />
-              <span className="text-gold text-xs font-bold uppercase tracking-widest">Desde 2014</span>
-            </div>
-            
-            <h1 className="font-serif text-7xl md:text-9xl font-bold text-white mb-8 leading-[0.85] tracking-tighter">
-              Estilo, Qualidade <br />
-              <span className="text-gold italic font-normal">e Tradição</span>
-            </h1>
-            
-            <p className="text-white/70 text-lg md:text-xl mb-12 max-w-2xl leading-relaxed">
-              A Fonseca Barbearia combina anos de experiência com as técnicas mais modernas para entregar o melhor resultado para você.
-            </p>
-            
-            <div className="flex flex-wrap gap-4">
-              <motion.button
-                onClick={() => { setSelectedService('Geral'); setIsBookingOpen(true); }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="inline-flex items-center gap-3 bg-gold text-black px-10 py-5 rounded-xl text-lg font-bold shadow-2xl shadow-gold/20"
-              >
-                Agendar Agora
-                <CalendarIcon className="w-5 h-5" />
-              </motion.button>
-              
-              <motion.a
-                href="#planos"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="inline-flex items-center gap-3 border-2 border-gold text-gold px-10 py-5 rounded-xl text-lg font-bold hover:bg-gold/10 transition-colors"
-              >
-                Ver Planos de Assinatura
-                <ChevronRight className="w-5 h-5" />
-              </motion.a>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Serviços Section */}
-      <section id="servicos" className="py-24 relative z-10 bg-zinc-950/50">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-5xl md:text-6xl font-bold text-white mb-4 italic">Nossos <span className="text-gold">Serviços</span></h2>
-            <p className="text-white/50 uppercase tracking-widest text-sm">Excelência em cada detalhe</p>
-          </div>
-          
-          <div className="grid md:grid-cols-3 gap-8">
-            {displayServices.map((service: any, i: number) => (
-              <motion.div 
-                key={i}
-                whileHover={{ y: -10 }}
-                className="bg-zinc-900/50 backdrop-blur-md border border-white/10 p-8 rounded-[32px] hover:border-gold/50 transition-all group"
-              >
-                <div className="flex justify-between items-start mb-6">
-                  <div className="bg-gold/10 p-4 rounded-2xl group-hover:scale-110 transition-transform">
-                    <Scissors className="w-8 h-8 text-gold" />
-                  </div>
-                  <span className="text-2xl font-bold text-gold">{service.price}</span>
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-3">{service.name}</h3>
-                <p className="text-white/50 mb-8 leading-relaxed">{service.description || service.desc}</p>
+        {/* Hero Section */}
+        <section className="min-h-screen flex items-center justify-center pt-20 px-6">
+          <div className="max-w-4xl mx-auto text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+            >
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gold/30 bg-black/50 backdrop-blur-sm mb-8">
+                <Star className="w-4 h-4 text-gold" />
+                <span className="text-xs font-bold tracking-widest uppercase text-gold">A Melhor Barbearia da Região</span>
+              </div>
+              <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold mb-6 leading-tight">
+                A Arte do <br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-gold via-yellow-200 to-gold">
+                  Corte Perfeito
+                </span>
+              </h1>
+              <p className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto font-light">
+                Mais que um corte de cabelo, uma experiência premium de cuidado masculino. 
+                Ambiente climatizado, cerveja gelada e profissionais de elite.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button 
-                  onClick={() => { setSelectedService(service.name); setIsBookingOpen(true); }}
-                  className="w-full py-4 rounded-xl border border-gold/30 text-gold font-bold hover:bg-gold hover:text-black transition-all"
+                  onClick={() => setIsBookingOpen(true)}
+                  className="w-full sm:w-auto bg-gold text-zinc-950 px-8 py-4 rounded-full font-bold uppercase tracking-widest hover:bg-white transition-all transform hover:scale-105"
                 >
-                  Agendar Este
+                  Agendar Horário
                 </button>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Conecte-se Conosco Section */}
-      <section className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-5xl md:text-6xl font-bold text-white mb-4">Conecte-se <span className="text-gold">Conosco</span></h2>
-            <p className="text-white/60 text-xl">Fale com a gente pelos nossos canais</p>
-          </div>
-          
-          <div className="grid md:grid-cols-3 gap-8">
-            {/* Instagram Card */}
-            <motion.div 
-              whileHover={{ y: -10 }}
-              className="bg-gradient-to-br from-purple-600 to-pink-500 p-12 rounded-[40px] text-center flex flex-col items-center gap-6"
-            >
-              <div className="bg-white/20 p-6 rounded-full">
-                <Instagram className="w-12 h-12 text-white" />
+                <a 
+                  href="#services"
+                  className="w-full sm:w-auto px-8 py-4 rounded-full font-bold uppercase tracking-widest border border-white/20 hover:bg-white/10 transition-all"
+                >
+                  Ver Serviços
+                </a>
               </div>
-              <h3 className="text-3xl font-bold text-white">Instagram</h3>
-              <p className="text-white/80">@fonsecabarbearia.pbs</p>
-              <a href="#" className="w-full bg-white/20 hover:bg-white/30 text-white py-4 rounded-xl font-bold transition-colors">Seguir Agora</a>
-            </motion.div>
-
-            {/* WhatsApp Card */}
-            <motion.div 
-              whileHover={{ y: -10 }}
-              className="bg-[#25D366] p-12 rounded-[40px] text-center flex flex-col items-center gap-6"
-            >
-              <div className="bg-white/20 p-6 rounded-full">
-                <MessageCircle className="w-12 h-12 text-white" />
-              </div>
-              <h3 className="text-3xl font-bold text-white">WhatsApp</h3>
-              <p className="text-white/80">Resposta rápida</p>
-              <a href={WHATSAPP_URL} className="w-full bg-white/20 hover:bg-white/30 text-white py-4 rounded-xl font-bold transition-colors">Chamar Agora</a>
-            </motion.div>
-
-            {/* Localização Card */}
-            <motion.div 
-              whileHover={{ y: -10 }}
-              className="bg-gold p-12 rounded-[40px] text-center flex flex-col items-center gap-6"
-            >
-              <div className="bg-black/10 p-6 rounded-full">
-                <MapPin className="w-12 h-12 text-black" />
-              </div>
-              <h3 className="text-3xl font-bold text-black">Localização</h3>
-              <p className="text-black/60">Como chegar</p>
-              <a href="#contato" className="w-full bg-black/10 hover:bg-black/20 text-black py-4 rounded-xl font-bold transition-colors">Ver no Mapa</a>
             </motion.div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Trust/Stats Section */}
-      <section className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-5xl md:text-6xl font-bold text-white">Por Que Escolher o <span className="text-gold">Fonseca Barber Club?</span></h2>
+        {/* Features Section */}
+        <section className="py-24 bg-zinc-950/95 relative">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {[
+                { icon: Trophy, title: "Profissionais de Elite", desc: "Equipe premiada e em constante atualização" },
+                { icon: Beer, title: "Bar Premium", desc: "Cerveja artesanal, whisky e café espresso" },
+                { icon: Zap, title: "Ambiente Climatizado", desc: "Conforto total durante seu atendimento" }
+              ].map((feature, i) => (
+                <motion.div 
+                  key={i}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.2 }}
+                  className="p-8 rounded-2xl bg-white/5 border border-white/10 hover:border-gold/50 transition-colors group"
+                >
+                  <div className="w-14 h-14 bg-gold/10 rounded-xl flex items-center justify-center mb-6 group-hover:bg-gold/20 transition-colors">
+                    <feature.icon className="w-7 h-7 text-gold" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-3">{feature.title}</h3>
+                  <p className="text-white/50 leading-relaxed">{feature.desc}</p>
+                </motion.div>
+              ))}
+            </div>
           </div>
-          
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              { icon: Award, label: "5+", sub: "Anos de Tradição" },
-              { icon: Users, label: "5000+", sub: "Clientes Satisfeitos" },
-              { icon: Star, label: "5.0/5", sub: "Avaliação Média" },
-              { icon: Scissors, label: "Premium", sub: "Atendimento Exclusivo" }
-            ].map((stat, i) => (
-              <div key={i} className="bg-white/5 backdrop-blur-md border border-white/10 p-10 rounded-[32px] text-center flex flex-col items-center gap-4 group hover:bg-white/10 transition-all">
-                <div className="bg-gold/10 p-4 rounded-full group-hover:scale-110 transition-transform">
-                  <stat.icon className="w-10 h-10 text-gold" />
+        </section>
+
+        {/* Services Section */}
+        <section id="services" className="py-32 bg-zinc-950 relative">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="text-center mb-20">
+              <h2 className="text-4xl md:text-5xl font-bold mb-6">Nossos Serviços</h2>
+              <p className="text-white/50 max-w-2xl mx-auto">
+                Técnicas tradicionais combinadas com as últimas tendências do mercado.
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-x-16 gap-y-8">
+              {displayServices.map((service: any, index: number) => (
+                <motion.div 
+                  key={index}
+                  initial={{ opacity: 0, x: index % 2 === 0 ? -20 : 20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  className="group cursor-pointer"
+                  onClick={() => {
+                    setSelectedService(service.name);
+                    setIsBookingOpen(true);
+                  }}
+                >
+                  <div className="flex items-center justify-between border-b border-white/10 pb-6 group-hover:border-gold transition-colors">
+                    <div>
+                      <h3 className="text-2xl font-bold mb-2 group-hover:text-gold transition-colors">{service.name}</h3>
+                      <p className="text-white/50 text-sm">{service.desc || service.description}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-2xl font-bold text-gold">{service.price}</span>
+                      <button className="block mt-2 text-[10px] uppercase tracking-widest text-white/30 group-hover:text-gold transition-colors">
+                        Agendar
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Experience Section */}
+        <section id="experience" className="py-32 bg-zinc-900 relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/pattern/1920/1080')] bg-repeat opacity-20 mix-blend-overlay" />
+          </div>
+          <div className="max-w-7xl mx-auto px-6 relative z-10">
+            <div className="grid lg:grid-cols-2 gap-16 items-center">
+              <div>
+                <h2 className="text-4xl md:text-5xl font-bold mb-8">Muito além de um corte de cabelo</h2>
+                <div className="space-y-8">
+                  {[
+                    { icon: Music, title: "Som Ambiente", desc: "Playlist selecionada para criar o clima perfeito" },
+                    { icon: Gamepad2, title: "Área de Espera", desc: "Videogame e revistas atualizadas" },
+                    { icon: Users, title: "Networking", desc: "Conecte-se com outros clientes em nosso bar" }
+                  ].map((item, i) => (
+                    <div key={i} className="flex gap-6">
+                      <div className="w-12 h-12 rounded-full bg-gold/10 flex items-center justify-center shrink-0">
+                        <item.icon className="w-6 h-6 text-gold" />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-bold mb-2">{item.title}</h4>
+                        <p className="text-white/50">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="text-4xl font-bold text-gold">{stat.label}</div>
-                <div className="text-white/60 font-medium">{stat.sub}</div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Galeria Section */}
-      <section id="galeria" className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-5xl md:text-6xl font-bold text-white mb-4 italic">Nossos <span className="text-gold">Resultados</span></h2>
-            <p className="text-white/50 uppercase tracking-widest text-sm">Cortes reais de clientes reais</p>
-          </div>
-          
-          {/* Image Gallery */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-24">
-            {displayGallery.map((item: any, i: number) => (
-              <motion.div 
-                key={i}
-                whileHover={{ scale: 1.02 }}
-                className="aspect-square overflow-hidden rounded-[40px] border border-white/10 group relative"
-              >
-                <img 
-                  src={item.url} 
-                  alt={`Trabalho ${i + 1}`} 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Scissors className="w-10 h-10 text-gold" />
+              <div className="relative">
+                <div className="aspect-square rounded-3xl overflow-hidden">
+                  <img 
+                    src="https://picsum.photos/seed/barber-experience/800/800" 
+                    alt="Barber Experience" 
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
                 </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Video Gallery */}
-          {displayVideoGallery.length > 0 && (
-            <div className="space-y-12">
-              <div className="text-center">
-                <h3 className="text-3xl font-bold text-white mb-2 italic">Vídeos do <span className="text-gold">Clube</span></h3>
-                <p className="text-white/40">Confira a atmosfera do nosso espaço</p>
+                <div className="absolute -bottom-8 -left-8 bg-zinc-950 p-8 rounded-3xl border border-white/10">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="flex -space-x-4">
+                      {[1,2,3,4].map(i => (
+                        <img key={i} src={`https://picsum.photos/seed/user${i}/100/100`} className="w-12 h-12 rounded-full border-2 border-zinc-950" alt="Client" />
+                      ))}
+                    </div>
+                    <div className="text-sm">
+                      <div className="flex text-gold">
+                        {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-current" />)}
+                      </div>
+                      <span className="font-bold">+500 avaliações</span>
+                    </div>
+                  </div>
+                  <p className="text-white/70 italic">"A melhor experiência que já tive em uma barbearia."</p>
+                </div>
               </div>
-              <div className="grid md:grid-cols-2 gap-8">
-                {displayVideoGallery.map((item: any, i: number) => (
-                  <motion.div 
-                    key={i}
-                    whileHover={{ scale: 1.02 }}
-                    className="aspect-video overflow-hidden rounded-[40px] border border-white/10 bg-zinc-900 relative group shadow-2xl"
-                  >
+            </div>
+          </div>
+        </section>
+
+        {/* Gallery Section */}
+        <section id="gallery" className="py-32 bg-zinc-950">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="flex justify-between items-end mb-16">
+              <div>
+                <h2 className="text-4xl md:text-5xl font-bold mb-4">Nossos Trabalhos</h2>
+                <p className="text-white/50">Confira o resultado do nosso padrão de excelência.</p>
+              </div>
+              <a href={WHATSAPP_URL} className="hidden md:flex items-center gap-2 text-gold hover:text-white transition-colors uppercase tracking-widest text-sm font-bold">
+                Ver mais no Instagram <ChevronRight className="w-4 h-4" />
+              </a>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {displayGallery.map((img: any, i: number) => (
+                <motion.div 
+                  key={i}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1 }}
+                  className="aspect-[4/5] rounded-2xl overflow-hidden group relative"
+                >
+                  <img 
+                    src={img.url} 
+                    alt={`Gallery ${i}`} 
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-8">
+                    <div className="translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
+                      <p className="text-gold font-bold mb-2">Corte & Barba</p>
+                      <p className="text-white/70 text-sm">Por Fonseca Barber Club</p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Video Gallery Section */}
+        {displayVideoGallery.length > 0 && (
+          <section className="py-32 bg-zinc-900">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="text-center mb-16">
+                <h2 className="text-4xl md:text-5xl font-bold mb-4">Vídeos</h2>
+                <p className="text-white/50">Acompanhe nosso dia a dia</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {displayVideoGallery.map((video: any, i: number) => (
+                  <div key={i} className="aspect-[9/16] rounded-2xl overflow-hidden bg-black relative group">
                     <video 
-                      src={item.url} 
-                      controls
-                      playsInline
-                      preload="metadata"
+                      src={video.url} 
+                      controls 
                       className="w-full h-full object-cover"
+                      preload="metadata"
                     />
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             </div>
-          )}
-        </div>
-      </section>
+          </section>
+        )}
 
-      {/* Planos Section */}
-      <section id="planos" className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 bg-gold/10 border border-gold/30 px-6 py-2 rounded-full mb-8">
-              <Star className="w-4 h-4 text-gold" />
-              <span className="text-gold text-sm font-bold uppercase tracking-widest">Planos Exclusivos</span>
-            </div>
-            <h2 className="text-6xl md:text-8xl font-bold text-white mb-8">Assine e <span className="text-gold">Economize Muito</span></h2>
-            <p className="text-white/60 text-xl max-w-3xl mx-auto">
-              Escolha o plano ideal para você e garanta sempre o melhor visual com benefícios exclusivos e economia garantida
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-3 gap-8 mb-16">
-            {[
-              { name: "Barba Ilimitada", price: "135", save: "22%", cuts: "Ilimitado" },
-              { name: "Corte Ilimitado", price: "75", save: null, cuts: "Ilimitado" },
-              { name: "Cabelo e Barba Ilimitado", price: "135", save: "15%", cuts: "Ilimitado" }
-            ].map((plano, i) => (
-              <motion.div 
-                key={i}
-                whileHover={{ scale: 1.02 }}
-                className="bg-black/40 backdrop-blur-xl border-2 border-gold/30 rounded-[40px] p-10 relative overflow-hidden group"
-              >
-                <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-gold/20 border border-gold/40 px-4 py-1 rounded-full flex items-center gap-2">
-                  <Zap className="w-3 h-3 text-gold fill-gold" />
-                  <span className="text-gold text-[10px] font-bold uppercase tracking-widest">Mais Popular</span>
-                </div>
+        {/* Contact Section */}
+        <section id="contact" className="py-32 bg-zinc-950 border-t border-white/5">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="grid lg:grid-cols-2 gap-16">
+              <div>
+                <h2 className="text-4xl md:text-5xl font-bold mb-8">Visite o Clube</h2>
+                <p className="text-white/50 mb-12 text-lg">
+                  Estamos prontos para receber você. Agende seu horário ou venha nos fazer uma visita.
+                </p>
                 
-                <div className="mt-12 mb-8 flex flex-col items-center text-center">
-                  <div className="bg-gold/10 p-6 rounded-full mb-8">
-                    <Scissors className="w-12 h-12 text-gold" />
-                  </div>
-                  <h3 className="text-3xl font-bold text-white mb-6">{plano.name}</h3>
-                  <div className="flex items-baseline gap-2 mb-2">
-                    <span className="text-5xl font-bold text-gold">R$ {plano.price}</span>
-                    <span className="text-white/40">/mês</span>
-                  </div>
-                  {plano.save && (
-                    <div className="text-green-400 text-sm font-bold flex items-center gap-1">
-                      💰 Economize {plano.save}
+                <div className="space-y-8">
+                  <div className="flex items-start gap-6">
+                    <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center shrink-0">
+                      <MapPin className="w-6 h-6 text-gold" />
                     </div>
-                  )}
-                </div>
-                
-                <div className="bg-gold/5 border border-gold/20 rounded-2xl p-6 text-center mb-8">
-                  <div className="text-3xl font-bold text-white">{plano.cuts} <span className="text-sm font-normal text-white/60">cortes/mês</span></div>
-                </div>
-                
-                <ul className="space-y-4 mb-10 text-white/70">
-                  <li className="flex items-center gap-3"><Check className="w-5 h-5 text-gold" /> Cabelo</li>
-                  <li className="flex items-center gap-3"><Check className="w-5 h-5 text-gold" /> Barba</li>
-                  <li className="flex items-center gap-3"><Check className="w-5 h-5 text-gold" /> Prioridade</li>
-                </ul>
-              </motion.div>
-            ))}
-          </div>
-          
-          <div className="text-center">
-            <button className="bg-gold text-black px-12 py-5 rounded-xl font-bold text-lg inline-flex items-center gap-3 hover:bg-gold/90 transition-all">
-              Ver Todos os Detalhes dos Planos
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      </section>
+                    <div>
+                      <h4 className="text-xl font-bold mb-2">Localização</h4>
+                      <p className="text-white/50">{settings?.address || "Rua Exemplo, 123"}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start gap-6">
+                    <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center shrink-0">
+                      <Clock className="w-6 h-6 text-gold" />
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-bold mb-2">Horário de Funcionamento</h4>
+                      <p className="text-white/50">Terça a Sábado: 09:00 às 20:00</p>
+                      <p className="text-white/50">Domingo e Segunda: Fechado</p>
+                    </div>
+                  </div>
 
-      {/* Benefits Section */}
-      <section className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[60px] p-16 grid md:grid-cols-3 gap-12">
-            <div className="text-center space-y-6">
-              <div className="bg-gold/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
-                <Star className="w-10 h-10 text-gold" />
-              </div>
-              <h3 className="text-2xl font-bold">Economia Garantida</h3>
-              <p className="text-white/50">Pague menos por corte com nossos planos mensais</p>
-            </div>
-            <div className="text-center space-y-6">
-              <div className="bg-gold/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
-                <CalendarIcon className="w-10 h-10 text-gold" />
-              </div>
-              <h3 className="text-2xl font-bold">Prioridade no Agendamento</h3>
-              <p className="text-white/50">Assinantes têm preferência nos horários</p>
-            </div>
-            <div className="text-center space-y-6">
-              <div className="bg-gold/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
-                <Award className="w-10 h-10 text-gold" />
-              </div>
-              <h3 className="text-2xl font-bold">Benefícios Exclusivos</h3>
-              <p className="text-white/50">Descontos em produtos e serviços extras</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Garanta Seu Horário Section */}
-      <section className="py-24 relative z-10">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="bg-gold rounded-[40px] p-16 text-center text-black relative overflow-hidden">
-            <div className="relative z-10">
-              <h2 className="text-5xl md:text-6xl font-bold mb-8 flex items-center justify-center gap-4">
-                <Zap className="w-12 h-12 fill-black" />
-                Garanta Seu Horário Agora!
-              </h2>
-              <p className="text-black/70 text-xl mb-12 max-w-2xl mx-auto font-medium">
-                Não perca tempo! Agende seu corte hoje mesmo e transforme seu visual com os melhores profissionais.
-              </p>
-              <div className="flex flex-wrap justify-center gap-6">
-                <button 
-                  onClick={() => { setSelectedService('Geral'); setIsBookingOpen(true); }}
-                  className="bg-zinc-900 text-gold px-12 py-5 rounded-2xl font-bold text-lg flex items-center gap-3 hover:bg-black transition-all"
-                >
-                  <CalendarIcon className="w-6 h-6" />
-                  Agendar Meu Horário
-                </button>
-                <a 
-                  href={WHATSAPP_URL}
-                  className="bg-white/20 border border-black/10 px-12 py-5 rounded-2xl font-bold text-lg flex items-center gap-3 hover:bg-white/30 transition-all"
-                >
-                  <MessageCircle className="w-6 h-6" />
-                  Chamar no WhatsApp
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Visite-nos Section */}
-      <section id="contato" className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[60px] p-16">
-            <div className="text-center mb-16">
-              <h2 className="text-5xl md:text-6xl font-bold mb-4">Visite-nos ou <span className="text-gold">Entre em Contato</span></h2>
-              <p className="text-white/60 text-xl">Estamos prontos para atendê-lo</p>
-            </div>
-            
-            <div className="grid md:grid-cols-3 gap-12">
-              <div className="text-center space-y-6">
-                <div className="bg-gold/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
-                  <MapPin className="w-10 h-10 text-gold" />
+                  <div className="flex items-start gap-6">
+                    <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center shrink-0">
+                      <Phone className="w-6 h-6 text-gold" />
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-bold mb-2">Contato</h4>
+                      <p className="text-white/50">{settings?.whatsapp_number || "5511999999999"}</p>
+                    </div>
+                  </div>
                 </div>
-                <h3 className="text-2xl font-bold">Localização</h3>
-                <p className="text-white/50">{settings?.address || "Rua Exemplo, 123"}</p>
-                <button className="border border-gold text-gold px-8 py-3 rounded-xl font-bold hover:bg-gold/10 transition-all">Ver Mapa</button>
               </div>
               
-              <div className="text-center space-y-6">
-                <div className="bg-gold/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
-                  <Phone className="w-10 h-10 text-gold" />
-                </div>
-                <h3 className="text-2xl font-bold">Telefone</h3>
-                <p className="text-white/50">{settings?.whatsapp_number || "5511999999999"}</p>
-                <a href={`tel:${settings?.whatsapp_number || "5511999999999"}`} className="border border-gold text-gold px-8 py-3 rounded-xl font-bold hover:bg-gold/10 transition-all inline-block">Ligar Agora</a>
-              </div>
-              
-              <div className="text-center space-y-6">
-                <div className="bg-gold/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
-                  <Clock className="w-10 h-10 text-gold" />
-                </div>
-                <h3 className="text-2xl font-bold">Horário</h3>
-                <p className="text-white/50">Seg-Sáb: 9h-20h</p>
-                <button 
-                  onClick={() => { setSelectedService('Geral'); setIsBookingOpen(true); }}
-                  className="border border-gold text-gold px-8 py-3 rounded-xl font-bold hover:bg-gold/10 transition-all"
-                >
-                  Agendar Agora
-                </button>
+              <div className="bg-white/5 p-8 md:p-12 rounded-3xl border border-white/10">
+                <h3 className="text-2xl font-bold mb-8">Agende seu horário</h3>
+                <form onSubmit={handleBookingSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Seu Nome</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={bookingForm.name}
+                      onChange={e => setBookingForm({...bookingForm, name: e.target.value})}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors"
+                      placeholder="Como prefere ser chamado?"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Data</label>
+                      <input 
+                        type="date" 
+                        required
+                        value={bookingForm.date}
+                        onChange={e => setBookingForm({...bookingForm, date: e.target.value})}
+                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Horário</label>
+                      <input 
+                        type="time" 
+                        required
+                        value={bookingForm.time}
+                        onChange={e => setBookingForm({...bookingForm, time: e.target.value})}
+                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors"
+                      />
+                    </div>
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full bg-gold text-zinc-950 font-bold uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors"
+                  >
+                    Confirmar Agendamento
+                  </button>
+                </form>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Final CTA Section */}
-      <section className="py-24 relative z-10">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <h2 className="text-6xl md:text-8xl font-bold mb-12">Pronto para Transformar Seu <span className="text-gold">Visual?</span></h2>
-          <p className="text-white/60 text-xl mb-16 max-w-3xl mx-auto">
-            Não espere mais! Agende agora e experimente o melhor da barbearia tradicional com um toque moderno
-          </p>
-          <div className="flex flex-wrap justify-center gap-6">
-            <button 
-              onClick={() => { setSelectedService('Geral'); setIsBookingOpen(true); }}
-              className="bg-gold text-black px-12 py-5 rounded-2xl font-bold text-lg flex items-center gap-3 hover:bg-gold/90 transition-all shadow-2xl shadow-gold/20"
-            >
-              <CalendarIcon className="w-6 h-6" />
-              Agendar Agora
-            </button>
-            <button className="border-2 border-gold text-gold px-12 py-5 rounded-2xl font-bold text-lg flex items-center gap-3 hover:bg-gold/10 transition-all">
-              <Star className="w-6 h-6" />
-              Ver Planos
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-16 relative z-10 bg-black/90 border-t border-white/10 text-center">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex items-center justify-center mb-10">
-            <img 
-              src="https://oacqvijuafuzsbyyqdtt.supabase.co/storage/v1/object/public/barber-assets/logo.png" 
-              alt="Fonseca Barber Club" 
-              className="h-24 w-auto brightness-110"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <div className="flex flex-col items-center footer-logo-fallback hidden">
-              <span className="font-serif text-4xl font-bold tracking-tighter text-white italic leading-none">Fonseca</span>
-              <span className="text-xs text-gold tracking-[0.4em] font-bold uppercase mt-1">BARBER CLUB</span>
-            </div>
+        {/* Footer */}
+        <footer className="bg-black py-12 border-t border-white/5 text-center">
+          <div className="w-12 h-12 bg-gold/10 rounded-full flex items-center justify-center mx-auto mb-8">
+            <Scissors className="w-6 h-6 text-gold" />
           </div>
           <p className="text-white/40 text-sm mb-6">
             © 2024 Fonseca Barber Club. Todos os direitos reservados. <br />
@@ -698,11 +491,100 @@ export default function App() {
           >
             Área Administrativa
           </button>
-        </div>
-      </footer>
+        </footer>
+      </div>
 
-      <FloatingWhatsApp number={settings.whatsapp_number} />
+      {/* Floating Elements */}
+      <FloatingWhatsApp phoneNumber={settings?.whatsapp_number || "5511999999999"} />
       <ChatBot />
+
+      {/* Booking Modal */}
+      <AnimatePresence>
+        {isBookingOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-zinc-900 p-8 rounded-3xl w-full max-w-md border border-white/10 relative"
+            >
+              <button 
+                onClick={() => setIsBookingOpen(false)}
+                className="absolute top-6 right-6 text-white/50 hover:text-white"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              
+              <div className="mb-8">
+                <h3 className="text-2xl font-bold mb-2">Agendar Horário</h3>
+                <p className="text-white/50">Preencha seus dados para confirmar</p>
+              </div>
+
+              <form onSubmit={handleBookingSubmit} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Serviço</label>
+                  <select 
+                    value={selectedService}
+                    onChange={e => setSelectedService(e.target.value)}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors appearance-none"
+                  >
+                    <option value="">Selecione um serviço</option>
+                    {displayServices.map((s: any, i: number) => (
+                      <option key={i} value={s.name}>{s.name} - {s.price}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Seu Nome</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={bookingForm.name}
+                    onChange={e => setBookingForm({...bookingForm, name: e.target.value})}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors"
+                    placeholder="Como prefere ser chamado?"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Data</label>
+                    <input 
+                      type="date" 
+                      required
+                      value={bookingForm.date}
+                      onChange={e => setBookingForm({...bookingForm, date: e.target.value})}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold uppercase tracking-widest text-white/50 mb-2">Horário</label>
+                    <input 
+                      type="time" 
+                      required
+                      value={bookingForm.time}
+                      onChange={e => setBookingForm({...bookingForm, time: e.target.value})}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-gold transition-colors"
+                    />
+                  </div>
+                </div>
+                <button 
+                  type="submit"
+                  className="w-full bg-gold text-zinc-950 font-bold uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors"
+                >
+                  Confirmar via WhatsApp
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AdminPanel isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
     </div>
   );
 }
