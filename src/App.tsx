@@ -453,7 +453,7 @@ export default function App() {
                     type="submit"
                     className="w-full bg-gold text-zinc-950 font-bold uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors"
                   >
-                    Confirmar Agendamento
+                    Confirmar via WhatsApp
                   </button>
                 </form>
               </div>
@@ -494,7 +494,16 @@ export default function App() {
       </div>
 
       {/* Floating Elements */}
-      <FloatingWhatsApp phoneNumber={settings?.whatsapp_number || "5511999999999"} />
+      <FloatingWhatsApp number={settings?.whatsapp_number || "5511999999999"} />
+
+      {/* Admin Panel */}
+      {isAdminOpen && (
+        <AdminPanel 
+          initialData={content} 
+          onClose={() => setIsAdminOpen(false)} 
+          onUpdate={fetchContent}
+        />
+      )}
 
       {/* Booking Modal */}
       <AnimatePresence>
@@ -581,8 +590,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <AdminPanel isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
     </div>
   );
 }
