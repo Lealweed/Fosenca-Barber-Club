@@ -414,9 +414,25 @@ const getOpsDashboard = async () => {
     });
 
     const professionalsSource = appbarberProfessionals.length > 0
-      ? appbarberProfessionals.map((professional: any) => ({
-          barberName: String(professional.name || professional.fullName || 'Equipe'),
-          barberUserId: toStableUuid(`appbarber:${professional.code || professional.name || professional.fullName}`),
+      ? Array.from(
+          appbarberProfessionals.reduce((acc: Map<string, any>, professional: any) => {
+            const canonicalName = String(professional.fullName || professional.name || 'Equipe').trim();
+            const key = normalizeName(canonicalName);
+            const candidate = {
+              barberName: canonicalName,
+              barberUserId: toStableUuid(`appbarber:${professional.code || canonicalName}`),
+              appointments: toNumber(professional.appointments),
+              revenue: toMoney(professional.revenue),
+            };
+            const current = acc.get(key);
+            if (!current || candidate.revenue > current.revenue || candidate.appointments > current.appointments) {
+              acc.set(key, candidate);
+            }
+            return acc;
+          }, new Map<string, any>()).values()
+        ).map((item: any) => ({
+          barberName: item.barberName,
+          barberUserId: item.barberUserId,
         }))
       : goals.map((goal: any) => ({
           barberName: String(goal.barber_name || 'Equipe'),
