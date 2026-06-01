@@ -325,208 +325,35 @@ const logAppBarberSync = async (
   }
 };
 
-const buildDemoDashboard = () => {
-  const makeBarber = (item: any) => {
-    const metrics = calculateGoalMetrics({
-      targetTotal: item.targetTotal,
-      guaranteedSubscription: item.guaranteedSubscription,
-      commissionRate: item.commissionRate,
-      workingDays: item.workingDays,
-      realizedMonth: item.realizedMonth,
-    });
-
-    return {
-      ...item,
-      officeId: 'office-fonseca',
-      barberUserId: item.id,
-      monthRef: '2026-04',
-      productionTarget: metrics.productionTarget,
-      dailyCommissionTarget: metrics.dailyCommissionTarget,
-      dailyRevenueTarget: metrics.dailyRevenueTarget,
-      gapRemaining: metrics.gapRemaining,
-      progressPercent: metrics.progressPercent,
-      tone: metrics.tone,
-      actionPlan: buildActionPlan(metrics.gapRemaining, item.kpisToday.ticketAvg),
-    };
-  };
-
+const buildEmptyDashboard = () => {
+  const now = new Date();
+  const todayKey = dateKey(now);
+  const monthStartKey = `${todayKey.slice(0, 7)}-01`;
   return {
     officeId: 'office-fonseca',
-    monthRef: '2026-04',
-    generatedAt: new Date().toISOString(),
-    barbers: [
-      makeBarber({
-        id: 'barber-lucas',
-        barberName: 'Lucas Fonseca',
-        targetTotal: 18000,
-        guaranteedSubscription: 5200,
-        commissionRate: 0.45,
-        workingDays: 24,
-        realizedToday: 930,
-        realizedWeek: 3870,
-        realizedMonth: 12640,
-        kpisToday: {
-          customersCount: 11,
-          baseServicesRevenue: 690,
-          extraServicesRevenue: 155,
-          productsRevenue: 85,
-          extraConversionPct: 42,
-          productsConversionPct: 19,
-          ticketAvg: 84.5,
-        },
-      }),
-      makeBarber({
-        id: 'barber-diego',
-        barberName: 'Diego Mendes',
-        targetTotal: 14500,
-        guaranteedSubscription: 4100,
-        commissionRate: 0.40,
-        workingDays: 24,
-        realizedToday: 710,
-        realizedWeek: 2960,
-        realizedMonth: 9875,
-        kpisToday: {
-          customersCount: 9,
-          baseServicesRevenue: 540,
-          extraServicesRevenue: 110,
-          productsRevenue: 60,
-          extraConversionPct: 35,
-          productsConversionPct: 16,
-          ticketAvg: 78.9,
-        },
-      }),
-      makeBarber({
-        id: 'barber-rafael',
-        barberName: 'Rafael Costa',
-        targetTotal: 13200,
-        guaranteedSubscription: 3600,
-        commissionRate: 0.38,
-        workingDays: 22,
-        realizedToday: 590,
-        realizedWeek: 2480,
-        realizedMonth: 9020,
-        kpisToday: {
-          customersCount: 8,
-          baseServicesRevenue: 470,
-          extraServicesRevenue: 80,
-          productsRevenue: 40,
-          extraConversionPct: 29,
-          productsConversionPct: 12,
-          ticketAvg: 73.75,
-        },
-      }),
-    ],
-    confirmations: [
-      {
-        id: 'conf-1',
-        appointmentId: 'ap-001',
-        clientName: 'Matheus Nunes',
-        timeLabel: '09:00',
-        channel: 'whatsapp',
-        status: 'confirmed',
-        sentAt: new Date().toISOString(),
-        confirmedAt: new Date().toISOString(),
-        payload: { flow: 'inicio_do_dia' },
-      },
-      {
-        id: 'conf-2',
-        appointmentId: 'ap-002',
-        clientName: 'Ana Souza',
-        timeLabel: '13:30',
-        channel: 'whatsapp',
-        status: 'pending',
-        sentAt: new Date().toISOString(),
-        payload: { flow: '30_min' },
-      },
-      {
-        id: 'conf-3',
-        appointmentId: 'ap-003',
-        clientName: 'Carlos Vieira',
-        timeLabel: '18:00',
-        channel: 'whatsapp',
-        status: 'no_response',
-        sentAt: new Date().toISOString(),
-        payload: { flow: 'inicio_do_dia' },
-      },
-    ],
+    monthRef: monthStartKey,
+    generatedAt: now.toISOString(),
+    barbers: [],
+    confirmations: [],
   };
 };
 
-const buildDemoClient = (clientId: string) => {
-  const clients: Record<string, any> = {
-    '1': {
-      id: '1',
-      officeId: 'office-fonseca',
-      name: 'Ana Souza',
-      phone: '+55 94 99222-1001',
-      lastVisitAt: new Date(Date.now() - 18 * 86400000).toISOString(),
-      preferences: ['degradê baixo', 'barba alinhada', 'pomada fosca'],
-      notes: 'Cliente responde bem a ofertas discretas e prefere atendimento no início da noite.',
-      averageFrequencyDays: 19,
-      nextVisitSuggestion: 'Retorno ideal entre 18 e 22 dias com oferta de selagem + leave-in.',
-      serviceHistory: [
-        { id: 'svc-1', date: new Date(Date.now() - 18 * 86400000).toISOString(), itemName: 'Corte + barba', amount: 75, barberName: 'Lucas Fonseca' },
-        { id: 'svc-2', date: new Date(Date.now() - 39 * 86400000).toISOString(), itemName: 'Selagem', amount: 95, barberName: 'Lucas Fonseca' },
-      ],
-      purchaseHistory: [
-        { id: 'prd-1', date: new Date(Date.now() - 61 * 86400000).toISOString(), itemName: 'Leave-in premium', amount: 59 },
-      ],
-      signals: [
-        {
-          id: 'sig-1',
-          itemType: 'service',
-          itemName: 'Selagem',
-          cycleDays: 30,
-          lastDoneAt: new Date(Date.now() - 39 * 86400000).toISOString(),
-          nextRecommendedAt: new Date(Date.now() - 9 * 86400000).toISOString(),
-          status: 'overdue',
-          offerText: 'Oferecer nova selagem com combo de manutenção.',
-        },
-        {
-          id: 'sig-2',
-          itemType: 'product',
-          itemName: 'Leave-in premium',
-          cycleDays: 60,
-          lastDoneAt: new Date(Date.now() - 61 * 86400000).toISOString(),
-          nextRecommendedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-          status: 'due',
-          offerText: 'Sugerir recompra do leave-in no fechamento do caixa.',
-        },
-      ],
-    },
-    'matheus-nunes': {
-      id: 'matheus-nunes',
-      officeId: 'office-fonseca',
-      name: 'Matheus Nunes',
-      phone: '+55 94 99111-2222',
-      lastVisitAt: new Date(Date.now() - 12 * 86400000).toISOString(),
-      preferences: ['navalhado', 'toalha quente'],
-      notes: 'Costuma confirmar rápido pelo WhatsApp e aceita bem serviços extras.',
-      averageFrequencyDays: 14,
-      nextVisitSuggestion: 'Agendar manutenção em até 2 dias e oferecer sobrancelha.',
-      serviceHistory: [
-        { id: 'svc-10', date: new Date(Date.now() - 12 * 86400000).toISOString(), itemName: 'Corte degradê', amount: 50, barberName: 'Rafael Costa' },
-        { id: 'svc-11', date: new Date(Date.now() - 28 * 86400000).toISOString(), itemName: 'Sobrancelha', amount: 25, barberName: 'Rafael Costa' },
-      ],
-      purchaseHistory: [
-        { id: 'prd-10', date: new Date(Date.now() - 70 * 86400000).toISOString(), itemName: 'Óleo para barba', amount: 42 },
-      ],
-      signals: [
-        {
-          id: 'sig-10',
-          itemType: 'service',
-          itemName: 'Sobrancelha',
-          cycleDays: 15,
-          lastDoneAt: new Date(Date.now() - 28 * 86400000).toISOString(),
-          nextRecommendedAt: new Date(Date.now() - 13 * 86400000).toISOString(),
-          status: 'overdue',
-          offerText: 'Já cabe oferta direta de sobrancelha no atendimento de hoje.',
-        },
-      ],
-    },
+const buildEmptyClient = (clientId: string) => {
+  const now = new Date().toISOString();
+  return {
+    id: String(clientId || ''),
+    officeId: 'office-fonseca',
+    name: 'Cliente',
+    phone: '',
+    lastVisitAt: now,
+    preferences: [],
+    notes: '',
+    averageFrequencyDays: 0,
+    nextVisitSuggestion: '',
+    serviceHistory: [],
+    purchaseHistory: [],
+    signals: [],
   };
-
-  return clients[clientId] || clients['1'];
 };
 
 const getOpsDashboard = async () => {
@@ -555,7 +382,7 @@ const getOpsDashboard = async () => {
   }));
   try {
     const supabase = getSupabase();
-    if (!supabase) return { ...buildDemoDashboard(), appbarber };
+    if (!supabase) return { ...buildEmptyDashboard(), appbarber };
 
     const todayKey = new Date().toISOString().slice(0, 10);
     const monthStartKey = `${todayKey.slice(0, 7)}-01`;
@@ -569,9 +396,7 @@ const getOpsDashboard = async () => {
       supabase.from('appointment_confirmations').select('*').order('sent_at', { ascending: false }).limit(20),
     ]);
 
-    if (goalsRes.error || !goalsRes.data || goalsRes.data.length === 0) {
-      return { ...buildDemoDashboard(), appbarber };
-    }
+    if (goalsRes.error || !goalsRes.data || goalsRes.data.length === 0) return { ...buildEmptyDashboard(), appbarber };
 
     const rows = kpisRes.data || [];
     const barbers = goalsRes.data.map((goal: any, index: number) => {
@@ -645,27 +470,25 @@ const getOpsDashboard = async () => {
       monthRef: monthStartKey,
       generatedAt: new Date().toISOString(),
       barbers,
-      confirmations: confirmations.length > 0 ? confirmations : buildDemoDashboard().confirmations,
+      confirmations,
       appbarber,
     };
   } catch {
-    return { ...buildDemoDashboard(), appbarber };
+    return { ...buildEmptyDashboard(), appbarber };
   }
 };
 
 const getClient360 = async (clientId: string) => {
   try {
     const supabase = getSupabase();
-    if (!supabase) return buildDemoClient(clientId);
+    if (!supabase) return buildEmptyClient(clientId);
 
     const [profileRes, signalRes] = await Promise.all([
       supabase.from('client_profiles_ext').select('*').eq('client_id', clientId).maybeSingle(),
       supabase.from('client_repurchase_signals').select('*').eq('client_id', clientId).order('next_recommended_at', { ascending: true }),
     ]);
 
-    if (profileRes.error || !profileRes.data) {
-      return buildDemoClient(clientId);
-    }
+    if (profileRes.error || !profileRes.data) return buildEmptyClient(clientId);
 
     return {
       id: String(profileRes.data.client_id),
@@ -691,7 +514,7 @@ const getClient360 = async (clientId: string) => {
       })),
     };
   } catch {
-    return buildDemoClient(clientId);
+    return buildEmptyClient(clientId);
   }
 };
 
