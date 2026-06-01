@@ -86,6 +86,64 @@ const toStableUuid = (seed: string) => {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 };
 
+const roundToHundred = (value: number) => {
+  const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
+  return Math.ceil(safeValue / 100) * 100;
+};
+
+const getMonthProgress = (date = new Date()) => {
+  const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const elapsedDays = Math.max(1, date.getDate());
+  const remainingDays = Math.max(0, daysInMonth - elapsedDays);
+  return { daysInMonth, elapsedDays, remainingDays };
+};
+
+const buildGoalPrediction = ({
+  realizedToday,
+  realizedWeek,
+  realizedMonth,
+  appointmentsCount,
+  ticketAvg,
+  houseAverageTicket,
+  workingDays,
+}: {
+  realizedToday: number;
+  realizedWeek: number;
+  realizedMonth: number;
+  appointmentsCount: number;
+  ticketAvg: number;
+  houseAverageTicket: number;
+  workingDays: number;
+}) => {
+  const { elapsedDays, remainingDays } = getMonthProgress();
+  const safeWorkingDays = Math.max(1, workingDays || 24);
+  const effectiveTicket = Math.max(ticketAvg, houseAverageTicket, appointmentsCount > 0 ? realizedMonth / appointmentsCount : 0, 1);
+  const dailyPace = Math.max(realizedToday, realizedWeek / Math.min(7, elapsedDays), realizedMonth / Math.max(1, elapsedDays));
+  const paceProjection = dailyPace * Math.min(safeWorkingDays, elapsedDays + remainingDays);
+  const bookedWithTicket = Math.max(realizedMonth, appointmentsCount * effectiveTicket);
+  const projectedRevenue = Math.max(realizedMonth, paceProjection, bookedWithTicket);
+  const suggestedTarget = roundToHundred(projectedRevenue * 1.18);
+  const suggestedDailyRevenue = suggestedTarget > 0 ? Number((suggestedTarget / safeWorkingDays).toFixed(2)) : 0;
+  const upsellOpportunity = roundToHundred(Math.max(0, suggestedTarget - realizedMonth));
+  const confidence = appointmentsCount >= 20 ? 'alta' : appointmentsCount >= 8 ? 'média' : 'baixa';
+
+  return {
+    suggestedTarget,
+    projectedRevenue: Number(projectedRevenue.toFixed(2)),
+    suggestedDailyRevenue,
+    upsellOpportunity,
+    confidence,
+    basis: {
+      realizedToday: Number(realizedToday.toFixed(2)),
+      realizedWeek: Number(realizedWeek.toFixed(2)),
+      scheduledMonth: Number(realizedMonth.toFixed(2)),
+      appointmentsCount,
+      effectiveTicket: Number(effectiveTicket.toFixed(2)),
+      remainingDays,
+    },
+  };
+};
+
 const getAppBarberConfig = () => {
   const apiKey = process.env.APPBARBER_API_KEY;
   const establishmentCode = toNumber(process.env.APPBARBER_ESTABLISHMENT_CODE);
@@ -430,10 +488,12 @@ const getOpsDashboard = async () => {
             }
             return acc;
           }, new Map<string, any>()).values()
-        ).map((item: any) => ({
-          barberName: item.barberName,
-          barberUserId: item.barberUserId,
-        }))
+        )
+          .filter((item: any) => item.appointments > 0 || item.revenue > 0 || goalsByName.has(normalizeName(item.barberName)))
+          .map((item: any) => ({
+            barberName: item.barberName,
+            barberUserId: item.barberUserId,
+          }))
       : goals.map((goal: any) => ({
           barberName: String(goal.barber_name || 'Equipe'),
           barberUserId: String(goal.barber_user_id || toStableUuid(`goal:${goal.barber_name || ''}`)),
@@ -451,10 +511,20 @@ const getOpsDashboard = async () => {
       const ticketAvg = customersCount > 0 ? realizedToday / customersCount : 0;
 
       const goal = goalsByUserId.get(item.barberUserId) || goalsByName.get(normalizeName(item.barberName)) || {};
-      const targetTotal = toNumber(goal.target_total);
+      const savedTargetTotal = toNumber(goal.target_total);
       const guaranteedSubscription = toNumber(goal.guaranteed_subscription);
       const commissionRate = Math.max(0.01, toNumber(goal.commission_rate) || 0.4);
       const workingDays = Math.max(1, toNumber(goal.working_days) || 24);
+      const goalPrediction = buildGoalPrediction({
+        realizedToday,
+        realizedWeek,
+        realizedMonth,
+        appointmentsCount: byName.length,
+        ticketAvg,
+        houseAverageTicket: toMoney((appbarber as any)?.summary?.averageTicket),
+        workingDays,
+      });
+      const targetTotal = savedTargetTotal > 0 ? savedTargetTotal : goalPrediction.suggestedTarget;
       const metrics = calculateGoalMetrics({ targetTotal, guaranteedSubscription, commissionRate, workingDays, realizedMonth });
 
       return {
@@ -464,6 +534,8 @@ const getOpsDashboard = async () => {
         barberName: item.barberName,
         monthRef: monthStartKey,
         targetTotal,
+        goalSource: savedTargetTotal > 0 ? 'manual' : 'prediction',
+        goalPrediction,
         guaranteedSubscription,
         productionTarget: metrics.productionTarget,
         dailyCommissionTarget: metrics.dailyCommissionTarget,
@@ -485,7 +557,7 @@ const getOpsDashboard = async () => {
           productsConversionPct: 0,
           ticketAvg: Number(ticketAvg.toFixed(2)),
         },
-        actionPlan: buildActionPlan(metrics.gapRemaining, ticketAvg),
+        actionPlan: buildActionPlan(metrics.gapRemaining, goalPrediction.basis.effectiveTicket),
       };
     });
 
@@ -1022,6 +1094,61 @@ app.post(["/api/ops/goals", "/ops/goals"], async (req, res) => {
 
     const dashboard = await getOpsDashboard();
     res.json({ success: true, dashboard });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post(["/api/ops/goals/predict", "/ops/goals/predict"], async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: "No Supabase" });
+
+    const dashboard = await getOpsDashboard();
+    const monthRef = dashboard.monthRef;
+    const force = req.body?.force === true || req.body?.mode === 'force';
+    const barbers = (dashboard.barbers || []).filter((barber: any) =>
+      (force || barber.goalSource === 'prediction') && barber.goalPrediction?.suggestedTarget > 0
+    );
+
+    const rows = barbers.map((barber: any) => {
+      const targetTotal = toNumber(barber.goalPrediction?.suggestedTarget);
+      const guaranteedSubscription = toNumber(barber.guaranteedSubscription);
+      const commissionRate = Math.max(0.01, toNumber(barber.commissionRate) || 0.4);
+      const workingDays = Math.max(1, toNumber(barber.workingDays) || 24);
+      const metrics = calculateGoalMetrics({
+        targetTotal,
+        guaranteedSubscription,
+        commissionRate,
+        workingDays,
+        realizedMonth: toNumber(barber.realizedMonth),
+      });
+
+      return {
+        office_id: String(barber.officeId || DEFAULT_OFFICE_ID),
+        barber_user_id: String(barber.barberUserId),
+        barber_name: String(barber.barberName),
+        month_ref: monthRef,
+        target_total: targetTotal,
+        guaranteed_subscription: guaranteedSubscription,
+        production_target: metrics.productionTarget,
+        daily_commission_target: metrics.dailyCommissionTarget,
+        daily_revenue_target: metrics.dailyRevenueTarget,
+        commission_rate: commissionRate,
+        working_days: workingDays,
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    if (rows.length > 0) {
+      const { error } = await supabase
+        .from('barber_goals')
+        .upsert(rows, { onConflict: 'office_id,barber_user_id,month_ref' });
+      if (error) return res.status(500).json({ error: error.message, code: error.code });
+    }
+
+    const updatedDashboard = await getOpsDashboard();
+    res.json({ success: true, created: rows.length, dashboard: updatedDashboard });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

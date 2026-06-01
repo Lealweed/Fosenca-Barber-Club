@@ -19,6 +19,7 @@ import {
   Trophy,
   Users,
   Wallet,
+  Wand2,
   Zap,
 } from 'lucide-react';
 import {
@@ -84,6 +85,15 @@ const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardRespo
     });
   }
 
+  if (barber.goalSource === 'prediction' && barber.goalPrediction) {
+    indications.push({
+      title: 'Meta prevista pelo AppBarber',
+      text: `Sugestão de ${formatCurrency(barber.goalPrediction.suggestedTarget)} usando agenda, ritmo atual e ticket médio.`,
+      tone: 'attention',
+      icon: Wand2,
+    });
+  }
+
   if (barber.gapRemaining > 0) {
     indications.push({
       title: 'Foco de faturamento',
@@ -139,6 +149,7 @@ export default function BarberGoalsDashboard() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [savingGoal, setSavingGoal] = useState(false);
+  const [creatingPredictions, setCreatingPredictions] = useState(false);
   const [goalDraft, setGoalDraft] = useState({
     targetTotal: 0,
     guaranteedSubscription: 0,
@@ -228,6 +239,30 @@ export default function BarberGoalsDashboard() {
       setError(err?.message || 'Não foi possível salvar a meta.');
     } finally {
       setSavingGoal(false);
+    }
+  };
+
+  const createPredictedGoals = async () => {
+    setCreatingPredictions(true);
+    setNotice('');
+    setError('');
+    try {
+      const res = await fetch('/api/ops/goals/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Falha ao criar metas previstas');
+      if (json?.dashboard) {
+        setData(json.dashboard);
+        setSelectedId((current) => json.dashboard.barbers.find((barber: BarberDashboardItem) => barber.id === current)?.id || json.dashboard.barbers?.[0]?.id || '');
+      }
+      setNotice(`${json?.created || 0} metas previstas foram aplicadas com base no AppBarber.`);
+    } catch (err: any) {
+      setError(err?.message || 'Não foi possível criar as metas previstas.');
+    } finally {
+      setCreatingPredictions(false);
     }
   };
 
@@ -321,6 +356,14 @@ export default function BarberGoalsDashboard() {
                 Atualizar
               </button>
               <button
+                onClick={createPredictedGoals}
+                disabled={creatingPredictions}
+                className="inline-flex items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-50"
+              >
+                {creatingPredictions ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                {creatingPredictions ? 'Criando...' : 'Criar metas previstas'}
+              </button>
+              <button
                 onClick={() => runCampaign('morning')}
                 disabled={!!syncing}
                 className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-4 py-3 text-sm font-semibold hover:bg-emerald-500/25 disabled:opacity-50"
@@ -408,7 +451,7 @@ export default function BarberGoalsDashboard() {
                         <p className="mt-1 text-xs text-zinc-400">{barber.barberName}</p>
                       </div>
                       <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${toneStyles[barber.tone]}`}>
-                        {toneLabels[barber.tone]}
+                        {barber.goalSource === 'prediction' ? 'prevista' : toneLabels[barber.tone]}
                       </span>
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
@@ -439,7 +482,16 @@ export default function BarberGoalsDashboard() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-zinc-400">Barbeiro selecionado</p>
-                  <h2 className="text-2xl font-black">{selectedBarber.barberName}</h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl font-black">{selectedBarber.barberName}</h2>
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${
+                      selectedBarber.goalSource === 'prediction'
+                        ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'
+                        : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                    }`}>
+                      {selectedBarber.goalSource === 'prediction' ? 'meta prevista' : 'meta manual'}
+                    </span>
+                  </div>
                 </div>
                 <Award className="h-6 w-6 text-gold" />
               </div>
@@ -499,6 +551,36 @@ export default function BarberGoalsDashboard() {
                 {savingGoal ? 'Salvando...' : 'Salvar meta e recalcular'}
               </button>
             </section>
+
+            {selectedBarber.goalPrediction && (
+              <section className="rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-black">Previsão AppBarber</h3>
+                  <Wand2 className="h-5 w-5 text-cyan-200" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
+                    <p className="text-xs text-cyan-100/70">Meta sugerida</p>
+                    <strong className="text-xl">{formatCurrency(selectedBarber.goalPrediction.suggestedTarget)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
+                    <p className="text-xs text-cyan-100/70">Faturamento projetado</p>
+                    <strong className="text-xl">{formatCurrency(selectedBarber.goalPrediction.projectedRevenue)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
+                    <p className="text-xs text-cyan-100/70">Oportunidade</p>
+                    <strong className="text-xl">{formatCurrency(selectedBarber.goalPrediction.upsellOpportunity)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
+                    <p className="text-xs text-cyan-100/70">Confiança</p>
+                    <strong className="text-xl capitalize">{selectedBarber.goalPrediction.confidence}</strong>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-cyan-100/70">
+                  Base: {selectedBarber.goalPrediction.basis.appointmentsCount} agendamentos, ticket efetivo {formatCurrency(selectedBarber.goalPrediction.basis.effectiveTicket)} e {selectedBarber.goalPrediction.basis.remainingDays} dias restantes.
+                </p>
+              </section>
+            )}
 
             <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
               <div className="mb-4 flex items-center justify-between">

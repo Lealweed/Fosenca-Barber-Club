@@ -32,6 +32,22 @@ export interface BarberDashboardItem {
   barberName: string;
   monthRef: string;
   targetTotal: number;
+  goalSource?: 'manual' | 'prediction';
+  goalPrediction?: {
+    suggestedTarget: number;
+    projectedRevenue: number;
+    suggestedDailyRevenue: number;
+    upsellOpportunity: number;
+    confidence: string;
+    basis: {
+      realizedToday: number;
+      realizedWeek: number;
+      scheduledMonth: number;
+      appointmentsCount: number;
+      effectiveTicket: number;
+      remainingDays: number;
+    };
+  };
   guaranteedSubscription: number;
   productionTarget: number;
   dailyCommissionTarget: number;
@@ -106,6 +122,19 @@ export interface AppBarberDashboardSnapshot {
     revenue: number;
   }>;
   nextAppointments: Array<{
+    id: string;
+    clientName: string;
+    phone: string;
+    service: string;
+    professional: string;
+    value: number;
+    status: string;
+    date: string;
+    time: string;
+    rawStart: string;
+    subscription: boolean;
+  }>;
+  appointments?: Array<{
     id: string;
     clientName: string;
     phone: string;
