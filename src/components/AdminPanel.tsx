@@ -3,9 +3,29 @@ import {
   Save, Plus, Trash2, X, Image as ImageIcon, Video, Scissors,
   Upload, Check, Lock, LogOut, Mail, Key, Loader2,
   LayoutDashboard, Globe, ImagePlus, Film,
-  Users, MessageSquare, Eye, Images,
+  Users, MessageSquare, Eye, Images, Target, TrendingUp, BellRing,
 } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type User } from '@supabase/supabase-js';
+import { dashboardFallback, formatCurrency, type DashboardResponse } from '../lib/opsFallback';
+
+const ADMIN_ROLES = new Set(['admin', 'manager']);
+const ADMIN_EMAILS = new Set(
+  (import.meta.env.VITE_ADMIN_EMAILS || 'techmasterpa@gmail.com')
+    .split(',')
+    .map((value: string) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+const isAuthorizedAdmin = (user: User | null | undefined) => {
+  if (!user) return false;
+
+  const email = String(user.email || '').trim().toLowerCase();
+  const role = String(user.app_metadata?.role || user.user_metadata?.role || '')
+    .trim()
+    .toLowerCase();
+
+  return ADMIN_ROLES.has(role) || ADMIN_EMAILS.has(email);
+};
 
 // ---------------------------------------------------------------------------
 // Supabase helper – serverless-safe, NO fetch('/api/...') for mutations
@@ -45,10 +65,11 @@ interface AdminProps {
   onUpdate: () => void;
 }
 
-type TabId = 'overview' | 'settings' | 'services' | 'media';
+type TabId = 'overview' | 'operations' | 'settings' | 'services' | 'media';
 
 const NAV_ITEMS: { id: TabId; label: string; icon: React.ElementType }[] = [
-  { id: 'overview',     label: 'Visão Geral',          icon: LayoutDashboard },
+  { id: 'overview',     label: 'Visão Geral',           icon: LayoutDashboard },
+  { id: 'operations',   label: 'Operação & CRM',        icon: Target          },
   { id: 'settings',     label: 'Configurações Globais', icon: Globe           },
   { id: 'services',     label: 'Serviços & Planos',     icon: Scissors        },
   { id: 'media',        label: 'Mídia & Galeria',       icon: ImagePlus       },
@@ -85,6 +106,8 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
   const [services,     setServices]     = useState<any[]>(initialData.services     || []);
   const [gallery,      setGallery]      = useState<any[]>(initialData.gallery      || []);
   const [videoGallery, setVideoGallery] = useState<any[]>(initialData.video_gallery || []);
+  const [opsData, setOpsData] = useState<DashboardResponse>(dashboardFallback);
+  const [isLoadingOps, setIsLoadingOps] = useState(false);
 
   // Saving / uploading flags
   const [isSaving,              setIsSaving]              = useState(false);
@@ -102,15 +125,41 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
   const galleryImgRef = useRef<HTMLInputElement>(null);
   const galleryVidRef = useRef<HTMLInputElement>(null);
 
+  const fetchOpsData = async () => {
+    setIsLoadingOps(true);
+    try {
+      const res = await fetch('/api/ops/dashboard');
+      if (!res.ok) throw new Error('Falha ao carregar operação');
+      const json = await res.json();
+      setOpsData(json);
+    } catch (e) {
+      console.error('Ops dashboard fallback:', e);
+      setOpsData(dashboardFallback);
+    } finally {
+      setIsLoadingOps(false);
+    }
+  };
+
   // ── Auth check on mount ──────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
         const sb = await getSupabase();
         const { data: { session } } = await sb.auth.getSession();
-        setUser(session?.user ?? null);
+        const sessionUser = session?.user ?? null;
+
+        if (sessionUser && !isAuthorizedAdmin(sessionUser)) {
+          await sb.auth.signOut();
+          setAuthError('Seu usuário autenticado não tem permissão administrativa.');
+          setUser(null);
+          return;
+        }
+
+        setUser(sessionUser);
       } catch (e) { console.error('Auth check failed:', e); }
     })();
+
+    fetchOpsData();
   }, []);
 
   // ── Login ────────────────────────────────────────────────────────────────
@@ -122,9 +171,9 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
       const sb = await getSupabase();
       const { data, error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      if (data.user?.email !== 'techmasterpa@gmail.com') {
+      if (!isAuthorizedAdmin(data.user)) {
         await sb.auth.signOut();
-        throw new Error('Acesso restrito apenas ao administrador autorizado.');
+        throw new Error('Acesso restrito. Cadastre este e-mail em VITE_ADMIN_EMAILS ou atribua role admin/manager ao usuário.');
       }
       setUser(data.user);
     } catch (err: any) {
@@ -358,15 +407,25 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
   // ==========================================================================
   const totalServices = services.length;
   const totalPhotos = gallery.length;
-  const totalVideos = videoGallery.length;
+  const hasHeroVideo = typeof settings?.hero_video === 'string' && settings.hero_video.trim() !== '';
+  const totalVideos = videoGallery.length + (hasHeroVideo ? 1 : 0);
   const hasLogo = settings?.logo_url ? 1 : 0;
 
   const METRIC_CARDS = [
     { label: 'Planos Ativos',       value: totalServices, icon: Users,         gradient: 'from-blue-500/20 to-blue-500/5',       iconColor: 'text-blue-400',    border: 'border-blue-500/20'    },
     { label: 'Fotos na Galeria',    value: totalPhotos,   icon: Images,        gradient: 'from-yellow-500/20 to-yellow-500/5',   iconColor: 'text-yellow-400',  border: 'border-yellow-500/20'  },
-    { label: 'Vídeos na Galeria',   value: totalVideos,   icon: Film,          gradient: 'from-emerald-500/20 to-emerald-500/5', iconColor: 'text-emerald-400', border: 'border-emerald-500/20' },
+    { label: 'Vídeos (Galeria + Hero)', value: totalVideos, icon: Film,        gradient: 'from-emerald-500/20 to-emerald-500/5', iconColor: 'text-emerald-400', border: 'border-emerald-500/20' },
     { label: 'Branding Configurado',value: hasLogo,       icon: Eye,           gradient: 'from-gold/20 to-gold/5',               iconColor: 'text-gold',        border: 'border-gold/20'        },
   ];
+
+  const opsSummary = {
+    totalTarget: opsData.barbers.reduce((sum, item) => sum + (item.targetTotal || 0), 0),
+    totalRealized: opsData.barbers.reduce((sum, item) => sum + (item.realizedMonth || 0), 0),
+    totalGap: opsData.barbers.reduce((sum, item) => sum + (item.gapRemaining || 0), 0),
+    pendingConfirmations: opsData.confirmations.filter((item) => item.status === 'pending').length,
+  };
+  const appbarber = opsData.appbarber || dashboardFallback.appbarber;
+  const appbarberSummary = appbarber?.summary;
 
   // ==========================================================================
   // FULL-SCREEN DASHBOARD
@@ -482,6 +541,227 @@ export default function AdminPanel({ onClose, initialData, onUpdate }: AdminProp
                     <p className="text-sm text-zinc-200">Mostre planos claros com preço e benefício objetivo.</p>
                   </div>
                 </div>
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+                  <div>
+                    <h2 className="font-semibold text-sm">Resultado operacional</h2>
+                    <p className="text-xs text-zinc-500 mt-1">Metas, agenda e financeiro conectados ao AppBarber</p>
+                  </div>
+                  <button
+                    onClick={fetchOpsData}
+                    className="text-xs px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-all"
+                  >
+                    {isLoadingOps ? 'Atualizando...' : 'Atualizar'}
+                  </button>
+                </div>
+                <div className="grid md:grid-cols-4 gap-4 p-6">
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Meta mensal</p>
+                    <p className="text-lg font-bold text-cyan-300">{formatCurrency(opsSummary.totalTarget)}</p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Realizado</p>
+                    <p className="text-lg font-bold text-emerald-300">{formatCurrency(opsSummary.totalRealized)}</p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Gap</p>
+                    <p className="text-lg font-bold text-amber-300">{formatCurrency(opsSummary.totalGap)}</p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Pendências WhatsApp</p>
+                    <p className="text-lg font-bold text-violet-300">{opsSummary.pendingConfirmations}</p>
+                  </div>
+                </div>
+                {appbarberSummary && (
+                  <div className="grid md:grid-cols-4 gap-4 px-6 pb-6">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Agenda mês</p>
+                      <p className="text-lg font-bold text-cyan-300">{appbarberSummary.monthAppointments}</p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Agenda hoje</p>
+                      <p className="text-lg font-bold text-emerald-300">{appbarberSummary.todayAppointments}</p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Receita agenda</p>
+                      <p className="text-lg font-bold text-amber-300">{formatCurrency(appbarberSummary.monthScheduledRevenue)}</p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Saldo financeiro</p>
+                      <p className="text-lg font-bold text-violet-300">{formatCurrency(appbarberSummary.financialBalance)}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="px-6 pb-6 flex flex-wrap gap-3">
+                  <a href="/app/meta-barbeiro" className="px-4 py-2 rounded-full bg-gold text-zinc-950 text-sm font-bold hover:bg-gold/80 transition-all">
+                    Abrir painel completo
+                  </a>
+                  <a href="/app/clientes/1" className="px-4 py-2 rounded-full border border-zinc-700 text-sm font-medium hover:bg-zinc-800 transition-all">
+                    Abrir CRM 360
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ──────────── TAB: OPERAÇÃO & CRM ──────────── */}
+          {activeTab === 'operations' && (
+            <div className="space-y-6 max-w-6xl">
+              {appbarberSummary && (
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-semibold">Central de Inteligência AppBarber</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Agenda, catálogo, equipe e financeiro vindos da API oficial</p>
+                    </div>
+                    <span className="text-[10px] px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold uppercase">
+                      AppBarber online
+                    </span>
+                  </div>
+
+                  <div className="grid md:grid-cols-4 gap-4">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Serviços</p>
+                      <p className="text-2xl font-bold text-cyan-300">{appbarberSummary.servicesCount}</p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Profissionais</p>
+                      <p className="text-2xl font-bold text-emerald-300">{appbarberSummary.professionalsCount}</p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Ticket médio</p>
+                      <p className="text-2xl font-bold text-amber-300">{formatCurrency(appbarberSummary.averageTicket)}</p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Assinaturas agenda</p>
+                      <p className="text-2xl font-bold text-violet-300">{appbarberSummary.subscriptionAppointments}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid xl:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Equipe no mês</p>
+                      <div className="space-y-2">
+                        {(appbarber?.professionals || []).slice(0, 6).map((professional) => (
+                          <div key={`${professional.code}-${professional.name}`} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="truncate text-zinc-200">{professional.name}</span>
+                            <span className="text-zinc-400">{professional.appointments} ag. • {formatCurrency(professional.revenue)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Próximos horários</p>
+                      <div className="space-y-2">
+                        {(appbarber?.nextAppointments || []).slice(0, 6).map((appointment) => (
+                          <div key={appointment.id} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="truncate text-zinc-200">{appointment.clientName}</span>
+                            <span className="text-zinc-400">{appointment.date} {appointment.time}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              <div className="grid md:grid-cols-4 gap-4">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-zinc-500 uppercase tracking-widest">Meta mensal</span>
+                    <Target className="w-4 h-4 text-cyan-300" />
+                  </div>
+                  <p className="text-2xl font-bold text-cyan-300">{formatCurrency(opsSummary.totalTarget)}</p>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-zinc-500 uppercase tracking-widest">Realizado</span>
+                    <TrendingUp className="w-4 h-4 text-emerald-300" />
+                  </div>
+                  <p className="text-2xl font-bold text-emerald-300">{formatCurrency(opsSummary.totalRealized)}</p>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-zinc-500 uppercase tracking-widest">Gap restante</span>
+                    <BellRing className="w-4 h-4 text-amber-300" />
+                  </div>
+                  <p className="text-2xl font-bold text-amber-300">{formatCurrency(opsSummary.totalGap)}</p>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-zinc-500 uppercase tracking-widest">Confirmações pendentes</span>
+                    <MessageSquare className="w-4 h-4 text-violet-300" />
+                  </div>
+                  <p className="text-2xl font-bold text-violet-300">{opsSummary.pendingConfirmations}</p>
+                </div>
+              </div>
+
+              <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-6">
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">Performance por barbeiro</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Metas inteligentes e plano de ação</p>
+                    </div>
+                    <button onClick={fetchOpsData} className="text-xs px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 transition-all">
+                      {isLoadingOps ? 'Atualizando...' : 'Atualizar'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {opsData.barbers.map((barber) => (
+                      <div key={barber.id} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                        <div className="flex items-start justify-between gap-4 mb-3">
+                          <div>
+                            <p className="font-semibold text-white">{barber.barberName}</p>
+                            <p className="text-xs text-zinc-500">Hoje {formatCurrency(barber.realizedToday)} • Mês {formatCurrency(barber.realizedMonth)}</p>
+                          </div>
+                          <span className="text-xs px-3 py-1 rounded-full bg-amber-500/15 text-amber-300">
+                            Gap {formatCurrency(barber.gapRemaining)}
+                          </span>
+                        </div>
+                        <div className="grid md:grid-cols-4 gap-2 text-sm">
+                          <div className="rounded-lg bg-zinc-900 p-3">Clientes: <strong>{barber.actionPlan.customersNeeded}</strong></div>
+                          <div className="rounded-lg bg-zinc-900 p-3">Sobrancelhas: <strong>{barber.actionPlan.eyebrowNeeded}</strong></div>
+                          <div className="rounded-lg bg-zinc-900 p-3">Selagens: <strong>{barber.actionPlan.sealingNeeded}</strong></div>
+                          <div className="rounded-lg bg-zinc-900 p-3">Produtos: <strong>{barber.actionPlan.productsNeeded}</strong></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Agenda e CRM</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Confirmações automáticas e acesso rápido</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {opsData.confirmations.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium">{item.clientName}</p>
+                          <p className="text-xs text-zinc-500">{item.timeLabel} • {item.channel}</p>
+                        </div>
+                        <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold uppercase ${item.status === 'confirmed' ? 'bg-violet-500/20 text-violet-300' : item.status === 'pending' ? 'bg-amber-500/20 text-amber-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                          {item.status === 'confirmed' ? 'confirmado' : item.status === 'pending' ? 'pendente' : 'sem resposta'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-col gap-3 pt-2">
+                    <a href="/app/meta-barbeiro" className="w-full text-center px-4 py-3 rounded-xl bg-gold text-zinc-950 font-bold hover:bg-gold/80 transition-all">
+                      Abrir dashboard operacional
+                    </a>
+                    <a href="/app/clientes/1" className="w-full text-center px-4 py-3 rounded-xl border border-zinc-700 hover:bg-zinc-800 transition-all">
+                      Abrir ficha CRM 360
+                    </a>
+                  </div>
+                </section>
               </div>
             </div>
           )}
