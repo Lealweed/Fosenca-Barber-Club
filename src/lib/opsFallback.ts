@@ -121,6 +121,45 @@ export interface AppBarberDashboardSnapshot {
     appointments: number;
     revenue: number;
   }>;
+  historicalRevenue?: {
+    monthsBack: number;
+    generatedAt: string;
+    warning?: string | null;
+    months: Array<{
+      monthRef: string;
+      startDate: string;
+      endDate: string;
+      label: string;
+      totalAppointments: number;
+      totalRevenue: number;
+      averageTicket: number;
+      confidence: string;
+      incomplete: boolean;
+      error?: string | null;
+      byBarber: Array<{
+        barberName: string;
+        appointments: number;
+        revenue: number;
+        subscriptions: number;
+        ticketAvg: number;
+      }>;
+    }>;
+    byBarber: Array<{
+      barberName: string;
+      months: Array<{
+        monthRef: string;
+        label: string;
+        revenue: number;
+        appointments: number;
+        ticketAvg: number;
+        confidence: string;
+      }>;
+      averageRevenue: number;
+      totalRevenue: number;
+      totalAppointments: number;
+      confidence: string;
+    }>;
+  };
   nextAppointments: Array<{
     id: string;
     clientName: string;
@@ -221,6 +260,13 @@ export const dashboardFallback: DashboardResponse = {
     },
     professionals: [],
     topServices: [],
+    historicalRevenue: {
+      monthsBack: 3,
+      generatedAt: new Date().toISOString(),
+      months: [],
+      byBarber: [],
+      warning: null,
+    },
     nextAppointments: [],
     catalog: [],
   },

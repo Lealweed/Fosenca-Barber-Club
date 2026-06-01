@@ -153,7 +153,7 @@ export default function BarberGoalsDashboard() {
   const [goalDraft, setGoalDraft] = useState({
     targetTotal: 0,
     guaranteedSubscription: 0,
-    commissionRate: 0.4,
+    commissionRate: 0.45, // 45% — taxa confirmada pelo gestor (2026-06-01)
     workingDays: 24,
   });
 
@@ -205,8 +205,12 @@ export default function BarberGoalsDashboard() {
   }, [data.barbers]);
 
   const appbarberSummary = data.appbarber?.summary;
+  const historicalRevenue = data.appbarber?.historicalRevenue;
   const selectedIndications = selectedBarber ? buildIndications(selectedBarber, data) : [];
   const selectedAppointments = selectedBarber ? findAppointmentsFor(data, selectedBarber.barberName).slice(0, 4) : [];
+  const selectedHistory = historicalRevenue?.byBarber.find(
+    (item) => item.barberName.trim().toLowerCase() === selectedBarber?.barberName.trim().toLowerCase(),
+  );
 
   const saveGoal = async () => {
     if (!selectedBarber) return;
@@ -664,6 +668,83 @@ export default function BarberGoalsDashboard() {
             </div>
           </div>
         </section>
+
+        {historicalRevenue && (
+          <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-sm text-zinc-400">Base histórica</p>
+                <h2 className="text-2xl font-black">Últimos meses por barbeiro</h2>
+              </div>
+              {historicalRevenue.warning && (
+                <span className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                  {historicalRevenue.warning}
+                </span>
+              )}
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[680px] text-left text-sm">
+                  <thead className="text-xs uppercase text-zinc-500">
+                    <tr className="border-b border-zinc-800">
+                      <th className="py-3 pr-3">Barbeiro</th>
+                      <th className="py-3 pr-3">Média</th>
+                      <th className="py-3 pr-3">Total</th>
+                      <th className="py-3 pr-3">Atend.</th>
+                      <th className="py-3 pr-3">Confiança</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(historicalRevenue.byBarber || []).slice(0, 8).map((barber) => (
+                      <tr key={barber.barberName} className="border-b border-zinc-800/70">
+                        <td className="py-3 pr-3 font-semibold text-zinc-100">{barber.barberName}</td>
+                        <td className="py-3 pr-3 text-zinc-300">{formatCurrency(barber.averageRevenue)}</td>
+                        <td className="py-3 pr-3 text-zinc-300">{formatCurrency(barber.totalRevenue)}</td>
+                        <td className="py-3 pr-3 text-zinc-300">{barber.totalAppointments}</td>
+                        <td className="py-3 pr-3">
+                          <span className={`rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${
+                            barber.confidence === 'alta'
+                              ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                              : barber.confidence === 'média'
+                                ? 'border-amber-400/30 bg-amber-500/10 text-amber-100'
+                                : 'border-rose-400/30 bg-rose-500/10 text-rose-100'
+                          }`}>
+                            {barber.confidence}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-black">Histórico do selecionado</h3>
+                  <BarChart3 className="h-5 w-5 text-cyan-300" />
+                </div>
+                {!selectedHistory ? (
+                  <p className="text-sm text-zinc-400">Sem histórico mensal suficiente para este barbeiro.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedHistory.months.map((month) => (
+                      <div key={month.monthRef} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold capitalize">{month.label}</p>
+                            <p className="text-xs text-zinc-400">{month.appointments} atend. • ticket {formatCurrency(month.ticketAvg)}</p>
+                          </div>
+                          <strong>{formatCurrency(month.revenue)}</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-4 xl:grid-cols-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">

@@ -33,14 +33,14 @@ export const getMetricTone = (progressPercent: number): MetricTone => {
 export const calculateGoalMetrics = ({
   targetTotal,
   guaranteedSubscription = 0,
-  commissionRate = 0.4,
+  commissionRate = 0.45, // 45% — taxa de comissão confirmada pelo gestor (2026-06-01)
   workingDays = 24,
   realizedMonth = 0,
 }: GoalMetricsInput): GoalMetricsResult => {
   const safeTarget = roundMoney(targetTotal);
   const safeSubscription = roundMoney(guaranteedSubscription);
   const safeDays = Math.max(1, Math.floor(workingDays || 1));
-  const safeRate = Math.max(0.01, Number(commissionRate) || 0.4);
+  const safeRate = Math.max(0.01, Number(commissionRate) || 0.45); // fallback 45%
   const safeRealized = roundMoney(realizedMonth);
 
   const productionTarget = roundMoney(safeTarget - safeSubscription);

@@ -98,6 +98,140 @@ const getMonthProgress = (date = new Date()) => {
   return { daysInMonth, elapsedDays, remainingDays };
 };
 
+const getMonthRange = (date: Date) => {
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  return {
+    monthRef: dateKey(monthStart),
+    startDate: dateKey(monthStart),
+    endDate: dateKey(monthEnd),
+    label: new Intl.DateTimeFormat('pt-BR', { month: 'short', year: 'numeric' }).format(monthStart),
+  };
+};
+
+const addMonths = (date: Date, months: number) => new Date(date.getFullYear(), date.getMonth() + months, 1);
+
+const normalizeAppointment = (item: any) => {
+  const parsed = toBrDateTimeKey(item.scheduling_start);
+  return {
+    id: String(item.scheduling_code || item.invoice_code || `${item.client_name}-${item.scheduling_start}`),
+    clientName: String(item.client_name || 'Cliente'),
+    phone: String(item.client_phone || ''),
+    service: String(item.service_description || 'Servico'),
+    professional: String(item.employee_name || 'Equipe').trim(),
+    value: toMoney(item.service_value),
+    status: String(item.scheduling_status || ''),
+    date: parsed.date,
+    time: parsed.time,
+    rawStart: String(item.scheduling_start || ''),
+    subscription: !!item.subscription_association,
+  };
+};
+
+const summarizeAppointmentsByBarber = (appointments: any[]) => {
+  const map = new Map<string, any>();
+  appointments.forEach((appointment) => {
+    const normalized = normalizeAppointment(appointment);
+    const key = normalizeName(normalized.professional);
+    const current = map.get(key) || {
+      barberName: normalized.professional,
+      appointments: 0,
+      revenue: 0,
+      subscriptions: 0,
+      ticketAvg: 0,
+    };
+    current.appointments += 1;
+    current.revenue += normalized.value;
+    current.subscriptions += normalized.subscription ? 1 : 0;
+    current.ticketAvg = current.appointments > 0 ? current.revenue / current.appointments : 0;
+    map.set(key, current);
+  });
+
+  return Array.from(map.values())
+    .map((item: any) => ({
+      ...item,
+      revenue: Number(item.revenue.toFixed(2)),
+      ticketAvg: Number(item.ticketAvg.toFixed(2)),
+    }))
+    .sort((a: any, b: any) => b.revenue - a.revenue || b.appointments - a.appointments);
+};
+
+const buildHistoricalRevenue = async (monthsBack = 3) => {
+  const today = new Date();
+  const monthRanges = Array.from({ length: monthsBack }, (_, index) => getMonthRange(addMonths(today, -1 - index)));
+  const monthResults = await Promise.all(
+    monthRanges.map(async (range) => {
+      const response = await safeAppBarberRequest('/v1/appointments/history', {
+        query: { start_date: range.startDate, end_date: range.endDate },
+      });
+      const rawAppointments = Array.isArray(response?.data) ? response.data : [];
+      const appointments = rawAppointments.map(normalizeAppointment);
+      const totalRevenue = appointments.reduce((sum, item) => sum + item.value, 0);
+      const byBarber = summarizeAppointmentsByBarber(rawAppointments);
+      const confidence = rawAppointments.length >= 20 && totalRevenue > 0 ? 'alta' : rawAppointments.length >= 8 ? 'média' : 'baixa';
+
+      return {
+        ...range,
+        totalAppointments: rawAppointments.length,
+        totalRevenue: Number(totalRevenue.toFixed(2)),
+        averageTicket: rawAppointments.length > 0 ? Number((totalRevenue / rawAppointments.length).toFixed(2)) : 0,
+        confidence,
+        incomplete: confidence === 'baixa',
+        byBarber,
+        error: response?.error || null,
+      };
+    }),
+  );
+
+  const barberMap = new Map<string, any>();
+  monthResults.forEach((month) => {
+    month.byBarber.forEach((barber: any) => {
+      const key = normalizeName(barber.barberName);
+      const current = barberMap.get(key) || {
+        barberName: barber.barberName,
+        months: [],
+        averageRevenue: 0,
+        totalRevenue: 0,
+        totalAppointments: 0,
+        confidence: 'baixa',
+      };
+      current.months.push({
+        monthRef: month.monthRef,
+        label: month.label,
+        revenue: barber.revenue,
+        appointments: barber.appointments,
+        ticketAvg: barber.ticketAvg,
+        confidence: month.confidence,
+      });
+      current.totalRevenue += barber.revenue;
+      current.totalAppointments += barber.appointments;
+      barberMap.set(key, current);
+    });
+  });
+
+  const byBarber = Array.from(barberMap.values())
+    .map((item: any) => {
+      const validMonths = item.months.filter((month: any) => month.appointments > 0);
+      return {
+        ...item,
+        totalRevenue: Number(item.totalRevenue.toFixed(2)),
+        averageRevenue: validMonths.length > 0 ? Number((item.totalRevenue / validMonths.length).toFixed(2)) : 0,
+        confidence: validMonths.some((month: any) => month.confidence !== 'baixa') ? 'média' : 'baixa',
+      };
+    })
+    .sort((a: any, b: any) => b.averageRevenue - a.averageRevenue || b.totalAppointments - a.totalAppointments);
+
+  return {
+    monthsBack,
+    generatedAt: new Date().toISOString(),
+    months: monthResults,
+    byBarber,
+    warning: monthResults.some((month) => month.incomplete)
+      ? 'Um ou mais meses retornaram poucos registros no AppBarber; use como referencia, nao como fechamento contábil.'
+      : null,
+  };
+};
+
 const buildGoalPrediction = ({
   realizedToday,
   realizedWeek,
@@ -238,11 +372,12 @@ const buildAppBarberSnapshot = async () => {
   const monthStartKey = dateKey(monthStart);
   const monthEndKey = dateKey(monthEnd);
 
-  const [servicesRes, professionalsRes, monthAppointmentsRes, financialRes] = await Promise.all([
+  const [servicesRes, professionalsRes, monthAppointmentsRes, financialRes, historicalRevenue] = await Promise.all([
     safeAppBarberRequest('/v1/services', { query: { type: 1 } }),
     safeAppBarberRequest('/v1/professional-list'),
     safeAppBarberRequest('/v1/appointments/history', { query: { start_date: monthStartKey, end_date: monthEndKey } }),
     safeAppBarberRequest('/v1/reports/financial', { query: { start_date: monthStartKey, end_date: monthEndKey } }),
+    buildHistoricalRevenue(3),
   ]);
 
   const services = Array.isArray(servicesRes?.data) ? servicesRes.data : [];
@@ -251,22 +386,7 @@ const buildAppBarberSnapshot = async () => {
   const financial = (Array.isArray(financialRes?.data) ? financialRes.data[0] : financialRes?.data || financialRes || {}) || {};
 
   const upcoming = appointments
-    .map((item: any) => {
-      const parsed = toBrDateTimeKey(item.scheduling_start);
-      return {
-        id: String(item.scheduling_code || item.invoice_code || `${item.client_name}-${item.scheduling_start}`),
-        clientName: String(item.client_name || 'Cliente'),
-        phone: String(item.client_phone || ''),
-        service: String(item.service_description || 'Servico'),
-        professional: String(item.employee_name || 'Equipe'),
-        value: toMoney(item.service_value),
-        status: String(item.scheduling_status || ''),
-        date: parsed.date,
-        time: parsed.time,
-        rawStart: String(item.scheduling_start || ''),
-        subscription: !!item.subscription_association,
-      };
-    })
+    .map(normalizeAppointment)
     .sort((a: any, b: any) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
 
   const todayAppointments = upcoming.filter((item: any) => item.date === todayKey);
@@ -352,6 +472,7 @@ const buildAppBarberSnapshot = async () => {
     },
     professionals: byProfessional,
     topServices,
+    historicalRevenue,
     appointments: upcoming,
     nextAppointments,
     catalog: services.slice(0, 12).map((service: any) => ({
@@ -443,6 +564,13 @@ const getOpsDashboard = async () => {
     },
     professionals: [],
     topServices: [],
+    historicalRevenue: {
+      monthsBack: 3,
+      generatedAt: new Date().toISOString(),
+      months: [],
+      byBarber: [],
+      warning: error?.message || 'Falha ao carregar histórico AppBarber',
+    },
     nextAppointments: [],
     catalog: [],
     errors: { snapshot: error?.message || 'Falha ao carregar AppBarber' },
@@ -513,7 +641,7 @@ const getOpsDashboard = async () => {
       const goal = goalsByUserId.get(item.barberUserId) || goalsByName.get(normalizeName(item.barberName)) || {};
       const savedTargetTotal = toNumber(goal.target_total);
       const guaranteedSubscription = toNumber(goal.guaranteed_subscription);
-      const commissionRate = Math.max(0.01, toNumber(goal.commission_rate) || 0.4);
+      const commissionRate = Math.max(0.01, toNumber(goal.commission_rate) || 0.45); // 45% confirmado pelo gestor
       const workingDays = Math.max(1, toNumber(goal.working_days) || 24);
       const goalPrediction = buildGoalPrediction({
         realizedToday,
@@ -1039,6 +1167,12 @@ app.post(["/api/admin/appointments", "/admin/appointments"], async (req, res) =>
 app.get(["/api/ops/dashboard", "/ops/dashboard"], async (req, res) => {
   const dashboard = await getOpsDashboard();
   res.json(dashboard);
+});
+
+app.get(["/api/ops/history", "/ops/history"], async (req, res) => {
+  const months = Math.max(1, Math.min(12, toNumber(req.query.months) || 3));
+  const history = await buildHistoricalRevenue(months);
+  res.json(history);
 });
 
 app.get(["/api/ops/clients/:id", "/ops/clients/:id"], async (req, res) => {
