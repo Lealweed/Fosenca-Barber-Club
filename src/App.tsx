@@ -11,6 +11,7 @@ import AdminPanel          from './components/AdminPanel';
 import BarberGoalsDashboard from './components/BarberGoalsDashboard';
 import Client360View       from './components/Client360View';
 import Header              from './components/Header';
+import SystemGuidePage     from './components/SystemGuidePage';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_LOGO =
@@ -299,6 +300,7 @@ export default function App() {
   const clientRouteMatch = currentPath.match(/^\/app\/clientes\/([^/]+)/);
 
   // ── Sub-routes ────────────────────────────────────────────────────────────
+  if (currentPath.startsWith('/app/manual')) return <SystemGuidePage />;
   if (currentPath.startsWith('/app/meta-barbeiro')) return <BarberGoalsDashboard />;
   if (clientRouteMatch) return <Client360View clientId={decodeURIComponent(clientRouteMatch[1])} />;
 

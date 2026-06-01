@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: '#galeria',         label: 'Galeria'    },
   { href: '#contato',         label: 'Contato'    },
   { href: '/app/meta-barbeiro', label: 'Plataforma' },
+  { href: '/app/manual',      label: 'Manual'     },
 ];
 
 export default function Header({ logoUrl, logoFailed, onLogoError, onContactClick }: HeaderProps) {
@@ -63,8 +64,8 @@ export default function Header({ logoUrl, logoFailed, onLogoError, onContactClic
           </a>
 
           {/* Desktop nav — hidden on mobile */}
-          <nav className="hidden md:flex items-center gap-8 text-xs font-semibold tracking-[0.15em] uppercase">
-            {NAV_LINKS.slice(0, 3).map(link => (
+          <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-xs font-semibold tracking-[0.15em] uppercase">
+            {NAV_LINKS.map(link => (
               <a
                 key={link.href}
                 href={link.href}
