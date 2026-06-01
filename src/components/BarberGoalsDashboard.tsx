@@ -1,16 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  Award,
+  BarChart3,
   Calendar,
   CheckCircle2,
   Clock3,
+  ClipboardList,
+  Gauge,
   MessageCircle,
+  RefreshCw,
+  Save,
   Scissors,
   ShoppingBag,
   Sparkles,
   Target,
   TrendingUp,
+  Trophy,
   Users,
+  Wallet,
+  Zap,
 } from 'lucide-react';
 import {
   dashboardFallback,
@@ -33,15 +42,93 @@ const toneStyles: Record<'ok' | 'attention' | 'below', string> = {
 };
 
 const toneLabels: Record<'ok' | 'attention' | 'below', string> = {
-  ok: 'ok',
+  ok: 'meta saudável',
   attention: 'atenção',
-  below: 'abaixo meta',
+  below: 'precisa acelerar',
 };
 
 const getActionTone = (value: number): 'ok' | 'attention' | 'below' => {
   if (value <= 0) return 'ok';
   if (value <= 3) return 'attention';
   return 'below';
+};
+
+const toShortName = (name: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 2) return name;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+};
+
+const sortByRevenue = (items: BarberDashboardItem[]) =>
+  [...items].sort((a, b) => b.realizedMonth - a.realizedMonth || b.realizedToday - a.realizedToday);
+
+const findAppointmentsFor = (dashboard: DashboardResponse, barberName: string) => {
+  const appointments = ((dashboard.appbarber as any)?.appointments || dashboard.appbarber?.nextAppointments || []) as Array<any>;
+  return appointments
+    .filter((item) => String(item.professional || '').trim().toLowerCase() === barberName.trim().toLowerCase())
+    .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+};
+
+const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardResponse) => {
+  const topService = dashboard.appbarber?.topServices?.[0];
+  const nextAppointments = findAppointmentsFor(dashboard, barber.barberName);
+  const avgTicket = dashboard.appbarber?.summary.averageTicket || 0;
+  const indications: Array<{ title: string; text: string; tone: 'ok' | 'attention' | 'below'; icon: React.ElementType }> = [];
+
+  if (barber.targetTotal <= 0) {
+    indications.push({
+      title: 'Definir meta agora',
+      text: 'Sem meta cadastrada, o painel mostra produção real, mas não consegue orientar o esforço necessário.',
+      tone: 'attention',
+      icon: Target,
+    });
+  }
+
+  if (barber.gapRemaining > 0) {
+    indications.push({
+      title: 'Foco de faturamento',
+      text: `Faltam ${formatCurrency(barber.gapRemaining)} para bater a meta. O caminho curto é combinar agenda cheia com aumento de ticket.`,
+      tone: barber.tone,
+      icon: TrendingUp,
+    });
+  } else if (barber.targetTotal > 0) {
+    indications.push({
+      title: 'Meta controlada',
+      text: 'Manter o ritmo, proteger agenda futura e puxar serviços extras para ampliar margem.',
+      tone: 'ok',
+      icon: CheckCircle2,
+    });
+  }
+
+  if (barber.kpisToday.ticketAvg > 0 && avgTicket > 0 && barber.kpisToday.ticketAvg < avgTicket) {
+    indications.push({
+      title: 'Subir ticket médio',
+      text: `Ticket de hoje em ${formatCurrency(barber.kpisToday.ticketAvg)}. Meta prática: chegar perto da média da casa (${formatCurrency(avgTicket)}).`,
+      tone: 'attention',
+      icon: Gauge,
+    });
+  }
+
+  if (topService) {
+    indications.push({
+      title: 'Oferta principal',
+      text: `Usar ${topService.name} como oferta-guia da conversa. É um dos serviços com maior tração no mês.`,
+      tone: 'ok',
+      icon: Scissors,
+    });
+  }
+
+  if (nextAppointments.length > 0) {
+    const next = nextAppointments[0];
+    indications.push({
+      title: 'Próxima agenda',
+      text: `Próximo atendimento: ${next.time || '--:--'} - ${next.service || 'serviço'}. Conferir oportunidade de complemento antes do fechamento.`,
+      tone: 'attention',
+      icon: Calendar,
+    });
+  }
+
+  return indications.slice(0, 4);
 };
 
 export default function BarberGoalsDashboard() {
@@ -59,31 +146,32 @@ export default function BarberGoalsDashboard() {
     workingDays: 24,
   });
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const res = await fetch('/api/ops/dashboard');
-        if (!res.ok) throw new Error('Falha ao carregar dashboard');
-        const json = (await res.json()) as DashboardResponse;
-        setData(json);
-        setSelectedId(json.barbers?.[0]?.id || '');
-      } catch {
-        setData(dashboardFallback);
-        setSelectedId(dashboardFallback.barbers[0]?.id || '');
-        setError('Dados principais indisponíveis. Exibindo modo contingência.');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadDashboard = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/ops/dashboard');
+      if (!res.ok) throw new Error('Falha ao carregar dashboard');
+      const json = (await res.json()) as DashboardResponse;
+      setData(json);
+      setSelectedId((current) => json.barbers.find((barber) => barber.id === current)?.id || json.barbers?.[0]?.id || '');
+    } catch {
+      setData(dashboardFallback);
+      setSelectedId(dashboardFallback.barbers[0]?.id || '');
+      setError('Dados principais indisponíveis no momento.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    load();
+  useEffect(() => {
+    loadDashboard();
   }, []);
 
+  const rankedBarbers = useMemo(() => sortByRevenue(data.barbers), [data.barbers]);
   const selectedBarber = useMemo<BarberDashboardItem | undefined>(
-    () => data.barbers.find((barber: BarberDashboardItem) => barber.id === selectedId) || data.barbers[0],
-    [data.barbers, selectedId],
+    () => data.barbers.find((barber) => barber.id === selectedId) || rankedBarbers[0],
+    [data.barbers, rankedBarbers, selectedId],
   );
 
   useEffect(() => {
@@ -96,10 +184,24 @@ export default function BarberGoalsDashboard() {
     });
   }, [selectedBarber]);
 
+  const teamTotals = useMemo(() => {
+    const totalTarget = data.barbers.reduce((sum, item) => sum + item.targetTotal, 0);
+    const totalRealized = data.barbers.reduce((sum, item) => sum + item.realizedMonth, 0);
+    const totalGap = data.barbers.reduce((sum, item) => sum + item.gapRemaining, 0);
+    const totalToday = data.barbers.reduce((sum, item) => sum + item.realizedToday, 0);
+    const progress = totalTarget > 0 ? Number(((totalRealized / totalTarget) * 100).toFixed(1)) : 0;
+    return { totalTarget, totalRealized, totalGap, totalToday, progress };
+  }, [data.barbers]);
+
+  const appbarberSummary = data.appbarber?.summary;
+  const selectedIndications = selectedBarber ? buildIndications(selectedBarber, data) : [];
+  const selectedAppointments = selectedBarber ? findAppointmentsFor(data, selectedBarber.barberName).slice(0, 4) : [];
+
   const saveGoal = async () => {
     if (!selectedBarber) return;
     setSavingGoal(true);
     setNotice('');
+    setError('');
     try {
       const res = await fetch('/api/ops/goals', {
         method: 'POST',
@@ -121,7 +223,7 @@ export default function BarberGoalsDashboard() {
         const refreshed = (json.dashboard.barbers || []).find((item: BarberDashboardItem) => item.barberUserId === selectedBarber.barberUserId);
         if (refreshed) setSelectedId(refreshed.id);
       }
-      setNotice('Meta salva com sucesso e painel recalculado com dados reais.');
+      setNotice('Meta salva e recomendações recalculadas com dados reais.');
     } catch (err: any) {
       setError(err?.message || 'Não foi possível salvar a meta.');
     } finally {
@@ -141,9 +243,9 @@ export default function BarberGoalsDashboard() {
       if (!res.ok) throw new Error('Falha no disparo');
       const json = (await res.json()) as { confirmations?: DashboardResponse['confirmations']; message?: string; mode?: string };
       if (json.confirmations) {
-        setData((prev: DashboardResponse) => ({ ...prev, confirmations: json.confirmations || [] }));
+        setData((prev) => ({ ...prev, confirmations: json.confirmations || [] }));
       }
-      setNotice(json.mode === 'persistent' ? 'Confirmações enviadas e persistidas no sistema.' : json.message || 'Fluxo executado em modo estável.');
+      setNotice(json.mode === 'persistent' ? 'Confirmações enviadas e persistidas no sistema.' : json.message || 'Fluxo executado.');
     } catch {
       setNotice('Fluxo executado em modo estável com dados locais.');
     } finally {
@@ -154,9 +256,9 @@ export default function BarberGoalsDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white px-4 py-6 md:px-8">
-        <div className="max-w-4xl mx-auto rounded-3xl border border-zinc-800 bg-zinc-900 p-8 text-center">
-          <p className="text-lg font-semibold">Carregando painel operacional...</p>
-          <p className="text-sm text-zinc-400 mt-2">Metas, CRM e agenda estão sendo preparados.</p>
+        <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
+          <p className="text-lg font-semibold">Carregando reunião operacional...</p>
+          <p className="text-sm text-zinc-400 mt-2">Buscando agenda, equipe, metas e financeiro real.</p>
         </div>
       </div>
     );
@@ -165,308 +267,384 @@ export default function BarberGoalsDashboard() {
   if (!selectedBarber) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white px-4 py-6 md:px-8">
-        <div className="max-w-4xl mx-auto rounded-3xl border border-zinc-800 bg-zinc-900 p-8 text-center">
-          <p className="text-lg font-semibold">Nenhuma meta cadastrada ainda.</p>
-          <p className="text-sm text-zinc-400 mt-2">Cadastre barbeiros e metas para ativar o acompanhamento.</p>
+        <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
+          <p className="text-lg font-semibold">Nenhum barbeiro encontrado.</p>
+          <p className="text-sm text-zinc-400 mt-2">Verifique a integração do AppBarber e atualize a página.</p>
         </div>
       </div>
     );
   }
 
+  const progressWidth = Math.max(0, Math.min(100, selectedBarber.progressPercent || 0));
+  const teamProgressWidth = Math.max(0, Math.min(100, teamTotals.progress || 0));
+
   const summaryCards = [
-    { label: 'Meta do mês', value: formatCurrency(selectedBarber.targetTotal), icon: Target, tone: selectedBarber.tone },
-    { label: 'Produção necessária', value: formatCurrency(selectedBarber.productionTarget), icon: TrendingUp, tone: selectedBarber.tone },
-    { label: 'Diária de comissão', value: formatCurrency(selectedBarber.dailyCommissionTarget), icon: Sparkles, tone: 'attention' as const },
-    { label: 'Diária de faturamento', value: formatCurrency(selectedBarber.dailyRevenueTarget), icon: Calendar, tone: 'attention' as const },
-    { label: 'Assinatura garantida', value: formatCurrency(selectedBarber.guaranteedSubscription), icon: CheckCircle2, tone: 'ok' as const },
-    { label: 'Gap restante', value: formatCurrency(selectedBarber.gapRemaining), icon: Clock3, tone: selectedBarber.gapRemaining <= 0 ? 'ok' as const : selectedBarber.tone },
+    { label: 'Meta da equipe', value: formatCurrency(teamTotals.totalTarget), icon: Target },
+    { label: 'Realizado no mês', value: formatCurrency(teamTotals.totalRealized), icon: Wallet },
+    { label: 'Gap da equipe', value: formatCurrency(teamTotals.totalGap), icon: TrendingUp },
+    { label: 'Hoje na agenda', value: String(appbarberSummary?.todayAppointments || 0), icon: Calendar },
   ];
 
-  const actions = [
+  const actionCards = [
     { label: 'Clientes', value: selectedBarber.actionPlan.customersNeeded, icon: Users },
     { label: 'Sobrancelhas', value: selectedBarber.actionPlan.eyebrowNeeded, icon: Sparkles },
     { label: 'Selagens', value: selectedBarber.actionPlan.sealingNeeded, icon: Scissors },
     { label: 'Produtos', value: selectedBarber.actionPlan.productsNeeded, icon: ShoppingBag },
   ];
 
-  const progressWidth = Math.max(0, Math.min(100, selectedBarber.progressPercent || 0));
-  const appbarber = data.appbarber;
-  const appbarberSummary = appbarber?.summary;
-
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(34,197,94,0.10),transparent_0),linear-gradient(135deg,#09090b,#18181b_45%,#09090b)] text-white px-4 py-6 md:px-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <a href="/" className="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white mb-3">
-              <ArrowLeft className="w-4 h-4" /> Voltar ao site
-            </a>
-            <h1 className="text-3xl md:text-5xl font-black tracking-tight">Operação diária</h1>
-            <p className="text-zinc-300 mt-2 max-w-2xl">
-              Interface simples para meta, agenda e próxima ação comercial do barbeiro.
-            </p>
-          </div>
+    <div className="min-h-screen bg-[#09090b] text-white">
+      <div className="border-b border-zinc-800 bg-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 py-5 md:px-8">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <a href="/" className="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white mb-3">
+                <ArrowLeft className="h-4 w-4" /> Voltar ao site
+              </a>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-black tracking-tight md:text-5xl">Reunião de performance</h1>
+                <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold uppercase text-emerald-200">
+                  Dados reais AppBarber
+                </span>
+              </div>
+              <p className="mt-2 max-w-3xl text-zinc-300">
+                Metas, produção, agenda e indicações para cada barbeiro faturar mais com ação clara.
+              </p>
+            </div>
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => runCampaign('morning')}
-              disabled={!!syncing}
-              className="rounded-2xl border border-emerald-400/30 bg-emerald-500/15 px-4 py-3 text-sm font-semibold hover:bg-emerald-500/25 disabled:opacity-50"
-            >
-              {syncing === 'morning' ? 'Disparando...' : 'Confirmar início do dia'}
-            </button>
-            <button
-              onClick={() => runCampaign('30min')}
-              disabled={!!syncing}
-              className="rounded-2xl border border-amber-400/30 bg-amber-500/15 px-4 py-3 text-sm font-semibold hover:bg-amber-500/25 disabled:opacity-50"
-            >
-              {syncing === '30min' ? 'Enviando...' : 'Lembrete 30 min'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={loadDashboard}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold hover:bg-zinc-800"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Atualizar
+              </button>
+              <button
+                onClick={() => runCampaign('morning')}
+                disabled={!!syncing}
+                className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-4 py-3 text-sm font-semibold hover:bg-emerald-500/25 disabled:opacity-50"
+              >
+                {syncing === 'morning' ? 'Disparando...' : 'Confirmar início'}
+              </button>
+              <button
+                onClick={() => runCampaign('30min')}
+                disabled={!!syncing}
+                className="rounded-lg border border-amber-400/30 bg-amber-500/15 px-4 py-3 text-sm font-semibold hover:bg-amber-500/25 disabled:opacity-50"
+              >
+                {syncing === '30min' ? 'Enviando...' : 'Lembrete 30 min'}
+              </button>
+            </div>
           </div>
         </div>
+      </div>
 
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-8">
         {error && (
-          <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
             {error}
           </div>
         )}
 
         {notice && (
-          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
             {notice}
           </div>
         )}
 
-        {appbarberSummary && (
-          <section className="rounded-3xl border border-cyan-400/20 bg-cyan-950/20 p-5 md:p-6">
-            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between mb-5">
-              <div>
-                <p className="text-sm text-cyan-200">Central de Inteligência AppBarber</p>
-                <h2 className="text-2xl font-black mt-1">Agenda, equipe e financeiro real</h2>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map(({ label, value, icon: Icon }) => (
+            <div key={label} className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm text-zinc-400">{label}</p>
+                <Icon className="h-5 w-5 text-gold" />
               </div>
-              <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200 uppercase">
-                Sincronizado
-              </span>
+              <p className="text-3xl font-black tracking-tight">{value}</p>
             </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-sm text-zinc-400">Agendamentos no mês</p>
-                <div className="text-3xl font-black">{appbarberSummary.monthAppointments}</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-sm text-zinc-400">Hoje na agenda</p>
-                <div className="text-3xl font-black">{appbarberSummary.todayAppointments}</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-sm text-zinc-400">Receita agendada</p>
-                <div className="text-3xl font-black">{formatCurrency(appbarberSummary.monthScheduledRevenue)}</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-sm text-zinc-400">Saldo financeiro</p>
-                <div className="text-3xl font-black">{formatCurrency(appbarberSummary.financialBalance)}</div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-2 mt-5">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <h3 className="font-bold mb-3">Ranking da equipe</h3>
-                <div className="space-y-2">
-                  {(appbarber.professionals || []).slice(0, 7).map((professional) => (
-                    <div key={`${professional.code}-${professional.name}`} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="truncate text-zinc-200">{professional.name}</span>
-                      <span className="text-zinc-400">{professional.appointments} ag. • {formatCurrency(professional.revenue)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <h3 className="font-bold mb-3">Serviços mais puxados</h3>
-                <div className="space-y-2">
-                  {(appbarber.topServices || []).slice(0, 7).map((service) => (
-                    <div key={service.name} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="truncate text-zinc-200">{service.name}</span>
-                      <span className="text-zinc-400">{service.appointments} ag. • {formatCurrency(service.revenue)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-3 flex flex-wrap items-center gap-2">
-          {data.barbers.map((barber: BarberDashboardItem) => (
-            <button
-              key={barber.id}
-              onClick={() => setSelectedId(barber.id)}
-              className={`rounded-2xl px-4 py-3 text-sm font-semibold transition-all ${
-                barber.id === selectedBarber.id
-                  ? 'bg-white text-zinc-950'
-                  : 'bg-zinc-950 text-zinc-200 hover:bg-zinc-800'
-              }`}
-            >
-              {barber.barberName}
-            </button>
           ))}
-          <div className={`ml-auto rounded-full border px-3 py-1 text-xs font-bold uppercase ${toneStyles[selectedBarber.tone]}`}>
-            {toneLabels[selectedBarber.tone]}
-          </div>
-        </div>
+        </section>
 
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm text-zinc-400">Performance do mês</p>
-              <h2 className="text-2xl font-black mt-1">{selectedBarber.barberName}</h2>
+              <p className="text-sm text-zinc-400">Progresso geral da equipe</p>
+              <h2 className="mt-1 text-2xl font-black">{formatPercent(teamTotals.progress)} da meta total</h2>
             </div>
-            <div className="text-sm text-zinc-300">
-              Realizado <strong>{formatCurrency(selectedBarber.realizedMonth)}</strong> de <strong>{formatCurrency(selectedBarber.targetTotal)}</strong>
-            </div>
+            <p className="text-sm text-zinc-300">
+              Hoje: <strong>{formatCurrency(teamTotals.totalToday)}</strong> • Mês: <strong>{formatCurrency(teamTotals.totalRealized)}</strong>
+            </p>
           </div>
-          <div className="mt-4 h-3 rounded-full bg-zinc-800 overflow-hidden">
-            <div
-              className={`h-full ${selectedBarber.tone === 'ok' ? 'bg-emerald-400' : selectedBarber.tone === 'attention' ? 'bg-amber-400' : 'bg-rose-400'}`}
-              style={{ width: `${progressWidth}%` }}
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-4 text-sm text-zinc-300">
-            <span>{selectedBarber.progressPercent}% da meta</span>
-            <span>Comissão {formatPercent(selectedBarber.commissionRate * 100)}</span>
-            <span>{selectedBarber.workingDays} dias úteis</span>
-          </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-4">
-            <label className="text-xs text-zinc-400 uppercase tracking-wide">
-              Meta mensal
-              <input
-                type="number"
-                min={0}
-                value={goalDraft.targetTotal}
-                onChange={(e) => setGoalDraft((prev) => ({ ...prev, targetTotal: Number(e.target.value || 0) }))}
-                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="text-xs text-zinc-400 uppercase tracking-wide">
-              Assinatura garantida
-              <input
-                type="number"
-                min={0}
-                value={goalDraft.guaranteedSubscription}
-                onChange={(e) => setGoalDraft((prev) => ({ ...prev, guaranteedSubscription: Number(e.target.value || 0) }))}
-                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="text-xs text-zinc-400 uppercase tracking-wide">
-              Comissão (0.40 = 40%)
-              <input
-                type="number"
-                min={0.01}
-                max={1}
-                step={0.01}
-                value={goalDraft.commissionRate}
-                onChange={(e) => setGoalDraft((prev) => ({ ...prev, commissionRate: Number(e.target.value || 0.4) }))}
-                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="text-xs text-zinc-400 uppercase tracking-wide">
-              Dias úteis
-              <input
-                type="number"
-                min={1}
-                max={31}
-                value={goalDraft.workingDays}
-                onChange={(e) => setGoalDraft((prev) => ({ ...prev, workingDays: Number(e.target.value || 24) }))}
-                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-              />
-            </label>
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button
-              onClick={saveGoal}
-              disabled={savingGoal}
-              className="rounded-xl bg-gold px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-gold/80 disabled:opacity-60"
-            >
-              {savingGoal ? 'Salvando meta...' : 'Salvar meta deste barbeiro'}
-            </button>
+          <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-800">
+            <div className="h-full bg-gold" style={{ width: `${teamProgressWidth}%` }} />
           </div>
         </section>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {summaryCards.map(({ label, value, icon: Icon, tone }) => (
-            <div key={label} className={`rounded-3xl border p-5 ${toneStyles[tone]}`}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm opacity-80">{label}</span>
-                <div className="rounded-xl bg-black/15 p-2"><Icon className="w-4 h-4" /></div>
+        <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-zinc-400">Equipe</p>
+                <h2 className="text-2xl font-black">Performance por barbeiro</h2>
               </div>
-              <div className="text-2xl font-black tracking-tight">{value}</div>
+              <Trophy className="h-6 w-6 text-gold" />
             </div>
-          ))}
-        </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <h2 className="text-xl font-bold mb-4">KPIs do dia</h2>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-sm text-zinc-400">Clientes atendidos</p>
-                <div className="text-3xl font-black">{selectedBarber.kpisToday.customersCount}</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-sm text-zinc-400">Ticket médio</p>
-                <div className="text-3xl font-black">{formatCurrency(selectedBarber.kpisToday.ticketAvg)}</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-sm text-zinc-400">Extras</p>
-                <div className="text-2xl font-black">{formatCurrency(selectedBarber.kpisToday.extraServicesRevenue)}</div>
-                <p className="text-xs text-zinc-400 mt-2">Conversão {formatPercent(selectedBarber.kpisToday.extraConversionPct)}</p>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-sm text-zinc-400">Produtos</p>
-                <div className="text-2xl font-black">{formatCurrency(selectedBarber.kpisToday.productsRevenue)}</div>
-                <p className="text-xs text-zinc-400 mt-2">Conversão {formatPercent(selectedBarber.kpisToday.productsConversionPct)}</p>
-              </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {rankedBarbers.map((barber, index) => {
+                const selected = barber.id === selectedBarber.id;
+                const width = Math.max(0, Math.min(100, barber.progressPercent || 0));
+                return (
+                  <button
+                    key={barber.id}
+                    onClick={() => setSelectedId(barber.id)}
+                    className={`rounded-lg border p-4 text-left transition-all ${
+                      selected ? 'border-gold bg-gold/10' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-zinc-500">#{index + 1}</p>
+                        <h3 className="truncate text-lg font-black">{toShortName(barber.barberName)}</h3>
+                        <p className="mt-1 text-xs text-zinc-400">{barber.barberName}</p>
+                      </div>
+                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${toneStyles[barber.tone]}`}>
+                        {toneLabels[barber.tone]}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <p className="text-zinc-500">Mês</p>
+                        <p className="font-bold">{formatCurrency(barber.realizedMonth)}</p>
+                      </div>
+                      <div>
+                        <p className="text-zinc-500">Hoje</p>
+                        <p className="font-bold">{formatCurrency(barber.realizedToday)}</p>
+                      </div>
+                      <div>
+                        <p className="text-zinc-500">Meta</p>
+                        <p className="font-bold">{formatCurrency(barber.targetTotal)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-800">
+                      <div className={barber.tone === 'ok' ? 'h-full bg-emerald-400' : barber.tone === 'attention' ? 'h-full bg-amber-400' : 'h-full bg-rose-400'} style={{ width: `${width}%` }} />
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-          </section>
+          </div>
 
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <h2 className="text-xl font-bold mb-1">Plano de ação</h2>
-            <p className="text-zinc-400 text-sm mb-4">O que fazer hoje para reduzir o gap.</p>
+          <div className="space-y-4">
+            <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-zinc-400">Barbeiro selecionado</p>
+                  <h2 className="text-2xl font-black">{selectedBarber.barberName}</h2>
+                </div>
+                <Award className="h-6 w-6 text-gold" />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs text-zinc-400 uppercase tracking-wide">
+                  Meta mensal
+                  <input
+                    type="number"
+                    min={0}
+                    value={goalDraft.targetTotal}
+                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, targetTotal: Number(event.target.value || 0) }))}
+                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+                <label className="text-xs text-zinc-400 uppercase tracking-wide">
+                  Assinatura garantida
+                  <input
+                    type="number"
+                    min={0}
+                    value={goalDraft.guaranteedSubscription}
+                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, guaranteedSubscription: Number(event.target.value || 0) }))}
+                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+                <label className="text-xs text-zinc-400 uppercase tracking-wide">
+                  Comissão
+                  <input
+                    type="number"
+                    min={0.01}
+                    max={1}
+                    step={0.01}
+                    value={goalDraft.commissionRate}
+                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, commissionRate: Number(event.target.value || 0.4) }))}
+                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+                <label className="text-xs text-zinc-400 uppercase tracking-wide">
+                  Dias úteis
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={goalDraft.workingDays}
+                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, workingDays: Number(event.target.value || 24) }))}
+                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+              </div>
+
+              <button
+                onClick={saveGoal}
+                disabled={savingGoal}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gold px-4 py-3 text-sm font-black text-zinc-950 hover:bg-gold/80 disabled:opacity-60"
+              >
+                {savingGoal ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {savingGoal ? 'Salvando...' : 'Salvar meta e recalcular'}
+              </button>
+            </section>
+
+            <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-black">Indicadores da meta</h3>
+                <BarChart3 className="h-5 w-5 text-cyan-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-zinc-400">Realizado</span>
+                  <strong>{formatCurrency(selectedBarber.realizedMonth)}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-zinc-400">Gap</span>
+                  <strong>{formatCurrency(selectedBarber.gapRemaining)}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-zinc-400">Diária necessária</span>
+                  <strong>{formatCurrency(selectedBarber.dailyRevenueTarget)}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-zinc-400">Ticket médio hoje</span>
+                  <strong>{formatCurrency(selectedBarber.kpisToday.ticketAvg)}</strong>
+                </div>
+              </div>
+              <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className={selectedBarber.tone === 'ok' ? 'h-full bg-emerald-400' : selectedBarber.tone === 'attention' ? 'h-full bg-amber-400' : 'h-full bg-rose-400'}
+                  style={{ width: `${progressWidth}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-zinc-400">{formatPercent(selectedBarber.progressPercent)} da meta</p>
+            </section>
+          </div>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-zinc-400">Plano de ação</p>
+                <h2 className="text-2xl font-black">O que precisa fazer</h2>
+              </div>
+              <ClipboardList className="h-6 w-6 text-gold" />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              {actions.map(({ label, value, icon: Icon }) => {
+              {actionCards.map(({ label, value, icon: Icon }) => {
                 const tone = getActionTone(value);
                 return (
-                  <div key={label} className={`rounded-2xl border p-4 ${toneStyles[tone]}`}>
+                  <div key={label} className={`rounded-lg border p-4 ${toneStyles[tone]}`}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4" />
+                        <Icon className="h-4 w-4" />
                         <span className="text-sm font-medium">{label}</span>
                       </div>
-                      <strong className="text-2xl font-black">{value}</strong>
+                      <strong className="text-3xl font-black">{value}</strong>
                     </div>
                   </div>
                 );
               })}
             </div>
-          </section>
-        </div>
+          </div>
 
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-          <div className="flex items-center justify-between gap-3 mb-5">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-zinc-400">Indicações para faturar mais</p>
+                <h2 className="text-2xl font-black">Próximas ações</h2>
+              </div>
+              <Zap className="h-6 w-6 text-amber-300" />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {selectedIndications.map(({ title, text, tone, icon: Icon }) => (
+                <div key={title} className={`rounded-lg border p-4 ${toneStyles[tone]}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
+                    <h3 className="font-bold">{title}</h3>
+                  </div>
+                  <p className="text-sm opacity-90">{text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-2">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-xl font-black">Serviços mais puxados</h2>
+              <Scissors className="h-5 w-5 text-zinc-300" />
+            </div>
+            <div className="space-y-3">
+              {(data.appbarber?.topServices || []).slice(0, 7).map((service) => (
+                <div key={service.name} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
+                  <span className="truncate text-zinc-200">{service.name}</span>
+                  <span className="shrink-0 text-zinc-400">{service.appointments} ag. • {formatCurrency(service.revenue)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-xl font-black">Agenda do selecionado</h2>
+              <Clock3 className="h-5 w-5 text-zinc-300" />
+            </div>
+            {selectedAppointments.length === 0 ? (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
+                Nenhum próximo horário encontrado para este barbeiro.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {selectedAppointments.map((appointment) => (
+                  <div key={appointment.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold">{appointment.service}</p>
+                        <p className="text-zinc-400">{appointment.date} às {appointment.time || '--:--'}</p>
+                      </div>
+                      <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300">
+                        {formatCurrency(appointment.value || 0)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+          <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">Confirmações no WhatsApp</h2>
-              <p className="text-zinc-400 text-sm">Leitura rápida e objetiva da agenda.</p>
+              <p className="text-sm text-zinc-400">Acompanhamento rápido da agenda.</p>
             </div>
-            <MessageCircle className="w-5 h-5 text-zinc-300" />
+            <MessageCircle className="h-5 w-5 text-zinc-300" />
           </div>
 
           {data.confirmations.length === 0 ? (
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
               Nenhuma confirmação pendente no momento.
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {data.confirmations.map((item) => (
-                <div key={item.id} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                <div key={item.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold">{item.clientName}</p>
@@ -480,12 +658,8 @@ export default function BarberGoalsDashboard() {
               ))}
             </div>
           )}
-
-          <a href="/app/clientes/1" className="mt-5 inline-flex items-center gap-2 text-sm text-cyan-200 hover:text-cyan-100">
-            Abrir CRM Cliente 360
-          </a>
         </section>
-      </div>
+      </main>
     </div>
   );
 }
