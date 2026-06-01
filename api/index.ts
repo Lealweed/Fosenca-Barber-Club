@@ -5,6 +5,7 @@ dotenv.config();
 import express from "express";
 import multer from "multer";
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "crypto";
 import {
   buildActionPlan,
   calculateGoalMetrics,
@@ -77,6 +78,13 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const normalizePhone = (value: any) => String(value || '').replace(/\D/g, '');
+const normalizeName = (value: any) => String(value || '').trim().toLowerCase();
+const DEFAULT_OFFICE_ID = process.env.DEFAULT_OFFICE_ID || '11111111-1111-1111-1111-111111111111';
+
+const toStableUuid = (seed: string) => {
+  const hash = createHash('md5').update(seed).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+};
 
 const getAppBarberConfig = () => {
   const apiKey = process.env.APPBARBER_API_KEY;
@@ -286,6 +294,7 @@ const buildAppBarberSnapshot = async () => {
     },
     professionals: byProfessional,
     topServices,
+    appointments: upcoming,
     nextAppointments,
     catalog: services.slice(0, 12).map((service: any) => ({
       code: service.service_code,
@@ -389,43 +398,54 @@ const getOpsDashboard = async () => {
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - 6);
     const weekStartKey = weekStart.toISOString().slice(0, 10);
+    const appbarberAppointments = Array.isArray((appbarber as any)?.appointments) ? (appbarber as any).appointments : [];
+    const appbarberProfessionals = Array.isArray(appbarber?.professionals) ? appbarber.professionals : [];
 
-    const [goalsRes, kpisRes, confirmationsRes] = await Promise.all([
+    const [goalsRes, confirmationsRes] = await Promise.all([
       supabase.from('barber_goals').select('*').eq('month_ref', monthStartKey),
-      supabase.from('barber_kpis_daily').select('*').gte('date_ref', monthStartKey),
       supabase.from('appointment_confirmations').select('*').order('sent_at', { ascending: false }).limit(20),
     ]);
+    const goals = goalsRes.error ? [] : (goalsRes.data || []);
+    const goalsByUserId = new Map<string, any>();
+    const goalsByName = new Map<string, any>();
+    goals.forEach((goal: any) => {
+      goalsByUserId.set(String(goal.barber_user_id || ''), goal);
+      goalsByName.set(normalizeName(goal.barber_name), goal);
+    });
 
-    if (goalsRes.error || !goalsRes.data || goalsRes.data.length === 0) return { ...buildEmptyDashboard(), appbarber };
+    const professionalsSource = appbarberProfessionals.length > 0
+      ? appbarberProfessionals.map((professional: any) => ({
+          barberName: String(professional.name || professional.fullName || 'Equipe'),
+          barberUserId: toStableUuid(`appbarber:${professional.code || professional.name || professional.fullName}`),
+        }))
+      : goals.map((goal: any) => ({
+          barberName: String(goal.barber_name || 'Equipe'),
+          barberUserId: String(goal.barber_user_id || toStableUuid(`goal:${goal.barber_name || ''}`)),
+        }));
 
-    const rows = kpisRes.data || [];
-    const barbers = goalsRes.data.map((goal: any, index: number) => {
-      const barberRows = rows.filter((row: any) => row.barber_user_id === goal.barber_user_id);
-      const sumRevenue = (row: any) => toNumber(row.base_services_revenue) + toNumber(row.extra_services_revenue) + toNumber(row.products_revenue);
-      const todayRow = barberRows.find((row: any) => toDateKey(row.date_ref) === todayKey) || barberRows[barberRows.length - 1] || {};
-      const realizedToday = sumRevenue(todayRow);
-      const realizedWeek = barberRows
-        .filter((row: any) => toDateKey(row.date_ref) >= weekStartKey)
-        .reduce((acc: number, row: any) => acc + sumRevenue(row), 0);
-      const realizedMonth = barberRows.reduce((acc: number, row: any) => acc + sumRevenue(row), 0);
+    const barbers = professionalsSource.map((item: any, index: number) => {
+      const byName = appbarberAppointments.filter((appointment: any) => normalizeName(appointment.professional) === normalizeName(item.barberName));
+      const todayRows = byName.filter((appointment: any) => appointment.date === todayKey);
+      const weekRows = byName.filter((appointment: any) => appointment.date >= weekStartKey);
+
+      const realizedToday = todayRows.reduce((acc: number, row: any) => acc + toMoney(row.value), 0);
+      const realizedWeek = weekRows.reduce((acc: number, row: any) => acc + toMoney(row.value), 0);
+      const realizedMonth = byName.reduce((acc: number, row: any) => acc + toMoney(row.value), 0);
+      const customersCount = todayRows.length;
+      const ticketAvg = customersCount > 0 ? realizedToday / customersCount : 0;
+
+      const goal = goalsByUserId.get(item.barberUserId) || goalsByName.get(normalizeName(item.barberName)) || {};
       const targetTotal = toNumber(goal.target_total);
       const guaranteedSubscription = toNumber(goal.guaranteed_subscription);
       const commissionRate = Math.max(0.01, toNumber(goal.commission_rate) || 0.4);
       const workingDays = Math.max(1, toNumber(goal.working_days) || 24);
-      const ticketAvg = toNumber(todayRow.ticket_avg) || Math.max(1, realizedToday / Math.max(1, toNumber(todayRow.customers_count)));
-      const metrics = calculateGoalMetrics({
-        targetTotal,
-        guaranteedSubscription,
-        commissionRate,
-        workingDays,
-        realizedMonth,
-      });
+      const metrics = calculateGoalMetrics({ targetTotal, guaranteedSubscription, commissionRate, workingDays, realizedMonth });
 
       return {
-        id: String(goal.id || goal.barber_user_id || `barber-${index}`),
-        officeId: String(goal.office_id || 'office-fonseca'),
-        barberUserId: String(goal.barber_user_id || `barber-${index}`),
-        barberName: String(goal.barber_name || `Barbeiro ${index + 1}`),
+        id: String(goal.id || item.barberUserId || `barber-${index}`),
+        officeId: String(goal.office_id || DEFAULT_OFFICE_ID),
+        barberUserId: String(goal.barber_user_id || item.barberUserId || `barber-${index}`),
+        barberName: item.barberName,
         monthRef: monthStartKey,
         targetTotal,
         guaranteedSubscription,
@@ -441,13 +461,13 @@ const getOpsDashboard = async () => {
         progressPercent: metrics.progressPercent,
         tone: metrics.tone,
         kpisToday: {
-          customersCount: toNumber(todayRow.customers_count),
-          baseServicesRevenue: toNumber(todayRow.base_services_revenue),
-          extraServicesRevenue: toNumber(todayRow.extra_services_revenue),
-          productsRevenue: toNumber(todayRow.products_revenue),
-          extraConversionPct: toNumber(todayRow.extra_conversion_pct),
-          productsConversionPct: toNumber(todayRow.products_conversion_pct),
-          ticketAvg,
+          customersCount,
+          baseServicesRevenue: Number(realizedToday.toFixed(2)),
+          extraServicesRevenue: 0,
+          productsRevenue: 0,
+          extraConversionPct: 0,
+          productsConversionPct: 0,
+          ticketAvg: Number(ticketAvg.toFixed(2)),
         },
         actionPlan: buildActionPlan(metrics.gapRemaining, ticketAvg),
       };
@@ -466,7 +486,7 @@ const getOpsDashboard = async () => {
     }));
 
     return {
-      officeId: String(goalsRes.data[0]?.office_id || 'office-fonseca'),
+      officeId: String(goals[0]?.office_id || DEFAULT_OFFICE_ID),
       monthRef: monthStartKey,
       generatedAt: new Date().toISOString(),
       barbers,
@@ -936,6 +956,59 @@ app.get(["/api/ops/dashboard", "/ops/dashboard"], async (req, res) => {
 app.get(["/api/ops/clients/:id", "/ops/clients/:id"], async (req, res) => {
   const client = await getClient360(String(req.params.id));
   res.json(client);
+});
+
+app.post(["/api/ops/goals", "/ops/goals"], async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: "No Supabase" });
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const monthStartKey = String(req.body?.monthRef || `${todayKey.slice(0, 7)}-01`).slice(0, 10);
+    const barberName = String(req.body?.barberName || '').trim();
+    const barberUserIdInput = String(req.body?.barberUserId || '').trim();
+    if (!barberName) return res.status(400).json({ error: 'barberName é obrigatório' });
+
+    const officeId = String(req.body?.officeId || DEFAULT_OFFICE_ID);
+    const barberUserId = barberUserIdInput && isUuid(barberUserIdInput)
+      ? barberUserIdInput
+      : toStableUuid(`goal:${officeId}:${barberName}`);
+
+    const targetTotal = toNumber(req.body?.targetTotal);
+    const guaranteedSubscription = toNumber(req.body?.guaranteedSubscription);
+    const commissionRate = Math.max(0.01, toNumber(req.body?.commissionRate) || 0.4);
+    const workingDays = Math.max(1, toNumber(req.body?.workingDays) || 24);
+
+    const metrics = calculateGoalMetrics({
+      targetTotal,
+      guaranteedSubscription,
+      commissionRate,
+      workingDays,
+      realizedMonth: 0,
+    });
+
+    const { error } = await supabase.from('barber_goals').upsert({
+      office_id: officeId,
+      barber_user_id: barberUserId,
+      barber_name: barberName,
+      month_ref: monthStartKey,
+      target_total: targetTotal,
+      guaranteed_subscription: guaranteedSubscription,
+      production_target: metrics.productionTarget,
+      daily_commission_target: metrics.dailyCommissionTarget,
+      daily_revenue_target: metrics.dailyRevenueTarget,
+      commission_rate: commissionRate,
+      working_days: workingDays,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'office_id,barber_user_id,month_ref' });
+
+    if (error) return res.status(500).json({ error: error.message, code: error.code });
+
+    const dashboard = await getOpsDashboard();
+    res.json({ success: true, dashboard });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post(["/api/ops/confirmations/run", "/ops/confirmations/run"], async (req, res) => {

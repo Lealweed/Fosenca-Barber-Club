@@ -51,6 +51,13 @@ export default function BarberGoalsDashboard() {
   const [syncing, setSyncing] = useState<'morning' | '30min' | ''>('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [goalDraft, setGoalDraft] = useState({
+    targetTotal: 0,
+    guaranteedSubscription: 0,
+    commissionRate: 0.4,
+    workingDays: 24,
+  });
 
   useEffect(() => {
     const load = async () => {
@@ -78,6 +85,49 @@ export default function BarberGoalsDashboard() {
     () => data.barbers.find((barber: BarberDashboardItem) => barber.id === selectedId) || data.barbers[0],
     [data.barbers, selectedId],
   );
+
+  useEffect(() => {
+    if (!selectedBarber) return;
+    setGoalDraft({
+      targetTotal: selectedBarber.targetTotal || 0,
+      guaranteedSubscription: selectedBarber.guaranteedSubscription || 0,
+      commissionRate: selectedBarber.commissionRate || 0.4,
+      workingDays: selectedBarber.workingDays || 24,
+    });
+  }, [selectedBarber]);
+
+  const saveGoal = async () => {
+    if (!selectedBarber) return;
+    setSavingGoal(true);
+    setNotice('');
+    try {
+      const res = await fetch('/api/ops/goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barberUserId: selectedBarber.barberUserId,
+          barberName: selectedBarber.barberName,
+          monthRef: data.monthRef,
+          targetTotal: goalDraft.targetTotal,
+          guaranteedSubscription: goalDraft.guaranteedSubscription,
+          commissionRate: goalDraft.commissionRate,
+          workingDays: goalDraft.workingDays,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Falha ao salvar meta');
+      if (json?.dashboard) {
+        setData(json.dashboard);
+        const refreshed = (json.dashboard.barbers || []).find((item: BarberDashboardItem) => item.barberUserId === selectedBarber.barberUserId);
+        if (refreshed) setSelectedId(refreshed.id);
+      }
+      setNotice('Meta salva com sucesso e painel recalculado com dados reais.');
+    } catch (err: any) {
+      setError(err?.message || 'Não foi possível salvar a meta.');
+    } finally {
+      setSavingGoal(false);
+    }
+  };
 
   const runCampaign = async (phase: 'morning' | '30min') => {
     setSyncing(phase);
@@ -284,6 +334,60 @@ export default function BarberGoalsDashboard() {
             <span>{selectedBarber.progressPercent}% da meta</span>
             <span>Comissão {formatPercent(selectedBarber.commissionRate * 100)}</span>
             <span>{selectedBarber.workingDays} dias úteis</span>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <label className="text-xs text-zinc-400 uppercase tracking-wide">
+              Meta mensal
+              <input
+                type="number"
+                min={0}
+                value={goalDraft.targetTotal}
+                onChange={(e) => setGoalDraft((prev) => ({ ...prev, targetTotal: Number(e.target.value || 0) }))}
+                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="text-xs text-zinc-400 uppercase tracking-wide">
+              Assinatura garantida
+              <input
+                type="number"
+                min={0}
+                value={goalDraft.guaranteedSubscription}
+                onChange={(e) => setGoalDraft((prev) => ({ ...prev, guaranteedSubscription: Number(e.target.value || 0) }))}
+                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="text-xs text-zinc-400 uppercase tracking-wide">
+              Comissão (0.40 = 40%)
+              <input
+                type="number"
+                min={0.01}
+                max={1}
+                step={0.01}
+                value={goalDraft.commissionRate}
+                onChange={(e) => setGoalDraft((prev) => ({ ...prev, commissionRate: Number(e.target.value || 0.4) }))}
+                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="text-xs text-zinc-400 uppercase tracking-wide">
+              Dias úteis
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={goalDraft.workingDays}
+                onChange={(e) => setGoalDraft((prev) => ({ ...prev, workingDays: Number(e.target.value || 24) }))}
+                className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+              />
+            </label>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={saveGoal}
+              disabled={savingGoal}
+              className="rounded-xl bg-gold px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-gold/80 disabled:opacity-60"
+            >
+              {savingGoal ? 'Salvando meta...' : 'Salvar meta deste barbeiro'}
+            </button>
           </div>
         </section>
 
