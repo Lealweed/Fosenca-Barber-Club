@@ -55,3 +55,51 @@ body::before {
 .admin-textarea {
   @apply w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 text-sm text-white focus:border-gold outline-none transition-colors resize-none;
 }
+
+@keyframes premium-scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  18% { opacity: 0.22; }
+  48% { opacity: 0.1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+@keyframes premium-border {
+  0% { opacity: 0.18; transform: translateX(-30%); }
+  50% { opacity: 0.58; }
+  100% { opacity: 0.18; transform: translateX(30%); }
+}
+
+.goals-premium-bg {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(197, 160, 89, 0.08), rgba(0, 0, 0, 0) 22rem),
+    linear-gradient(135deg, rgba(7, 7, 7, 1), rgba(16, 15, 12, 1) 48%, rgba(7, 7, 7, 1));
+}
+
+.goals-premium-bg::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent 78%);
+  z-index: 0;
+}
+
+.goals-premium-bg::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(197, 160, 89, 0.08), transparent);
+  animation: premium-scan 8s ease-in-out infinite;
+  z-index: 0;
+}
+
+.goals-premium-bg > * {
+  position: relative;
+  z-index: 1;
+}

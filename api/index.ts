@@ -91,6 +91,12 @@ const roundToHundred = (value: number) => {
   return Math.ceil(safeValue / 100) * 100;
 };
 
+const normalizeCommissionRate = (value: any) => {
+  const parsed = toNumber(value);
+  if (!parsed || Math.abs(parsed - 0.4) < 0.0001) return 0.45;
+  return Math.max(0.01, parsed);
+};
+
 const getMonthProgress = (date = new Date()) => {
   const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   const elapsedDays = Math.max(1, date.getDate());
@@ -641,7 +647,7 @@ const getOpsDashboard = async () => {
       const goal = goalsByUserId.get(item.barberUserId) || goalsByName.get(normalizeName(item.barberName)) || {};
       const savedTargetTotal = toNumber(goal.target_total);
       const guaranteedSubscription = toNumber(goal.guaranteed_subscription);
-      const commissionRate = Math.max(0.01, toNumber(goal.commission_rate) || 0.45); // 45% confirmado pelo gestor
+      const commissionRate = normalizeCommissionRate(goal.commission_rate);
       const workingDays = Math.max(1, toNumber(goal.working_days) || 24);
       const goalPrediction = buildGoalPrediction({
         realizedToday,
@@ -1198,7 +1204,7 @@ app.post(["/api/ops/goals", "/ops/goals"], async (req, res) => {
 
     const targetTotal = toNumber(req.body?.targetTotal);
     const guaranteedSubscription = toNumber(req.body?.guaranteedSubscription);
-    const commissionRate = Math.max(0.01, toNumber(req.body?.commissionRate) || 0.4);
+    const commissionRate = normalizeCommissionRate(req.body?.commissionRate);
     const workingDays = Math.max(1, toNumber(req.body?.workingDays) || 24);
 
     const metrics = calculateGoalMetrics({
@@ -1248,7 +1254,7 @@ app.post(["/api/ops/goals/predict", "/ops/goals/predict"], async (req, res) => {
     const rows = barbers.map((barber: any) => {
       const targetTotal = toNumber(barber.goalPrediction?.suggestedTarget);
       const guaranteedSubscription = toNumber(barber.guaranteedSubscription);
-      const commissionRate = Math.max(0.01, toNumber(barber.commissionRate) || 0.4);
+      const commissionRate = normalizeCommissionRate(barber.commissionRate);
       const workingDays = Math.max(1, toNumber(barber.workingDays) || 24);
       const metrics = calculateGoalMetrics({
         targetTotal,

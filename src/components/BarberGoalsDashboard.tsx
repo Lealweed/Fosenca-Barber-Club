@@ -1,17 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
+  Activity,
   ArrowLeft,
-  Award,
   BarChart3,
   Calendar,
   CheckCircle2,
   Clock3,
   ClipboardList,
+  Eye,
   Gauge,
+  LineChart,
+  Maximize2,
   MessageCircle,
+  PieChart,
   RefreshCw,
   Save,
   Scissors,
+  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Target,
@@ -30,29 +36,55 @@ import {
   type DashboardResponse,
 } from '../lib/opsFallback';
 
+type Tone = 'ok' | 'attention' | 'below';
+
 const confirmationStyles: Record<string, string> = {
-  pending: 'bg-amber-500/15 text-amber-200 border-amber-400/30',
-  confirmed: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30',
-  no_response: 'bg-rose-500/15 text-rose-200 border-rose-400/30',
+  pending: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
+  confirmed: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
+  no_response: 'border-rose-400/30 bg-rose-500/10 text-rose-100',
 };
 
-const toneStyles: Record<'ok' | 'attention' | 'below', string> = {
+const toneStyles: Record<Tone, string> = {
   ok: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
   attention: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
   below: 'border-rose-400/30 bg-rose-500/10 text-rose-100',
 };
 
-const toneLabels: Record<'ok' | 'attention' | 'below', string> = {
-  ok: 'meta saudável',
-  attention: 'atenção',
-  below: 'precisa acelerar',
+const toneLabels: Record<Tone, string> = {
+  ok: 'Ritmo forte',
+  attention: 'Atenção',
+  below: 'Acelerar',
 };
 
-const getActionTone = (value: number): 'ok' | 'attention' | 'below' => {
-  if (value <= 0) return 'ok';
-  if (value <= 3) return 'attention';
-  return 'below';
+const toneColors: Record<Tone, string> = {
+  ok: '#34d399',
+  attention: '#fbbf24',
+  below: '#fb7185',
 };
+
+const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
+
+const normalizeCommissionRate = (value: number) => {
+  if (!value || Math.abs(value - 0.4) < 0.0001) return 0.45;
+  return Math.max(0.01, value);
+};
+
+const compactCurrency = (value: number) =>
+  new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    notation: Math.abs(value || 0) >= 10000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(value || 0) >= 10000 ? 1 : 0,
+  }).format(value || 0);
+
+const getInitials = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'FB';
 
 const toShortName = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -70,16 +102,35 @@ const findAppointmentsFor = (dashboard: DashboardResponse, barberName: string) =
     .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
 };
 
+const getActionTone = (value: number): Tone => {
+  if (value <= 0) return 'ok';
+  if (value <= 3) return 'attention';
+  return 'below';
+};
+
+const getMomentum = (barber: BarberDashboardItem, houseTicket: number) => {
+  if (barber.progressPercent >= 100) return 'Meta batida. A prioridade agora e proteger agenda e ampliar extras.';
+  if (barber.kpisToday.ticketAvg > 0 && houseTicket > 0 && barber.kpisToday.ticketAvg < houseTicket) {
+    return `Ticket abaixo da casa. Subir de ${formatCurrency(barber.kpisToday.ticketAvg)} para perto de ${formatCurrency(houseTicket)} muda o jogo.`;
+  }
+  if (barber.gapRemaining > 0) {
+    return `Faltam ${formatCurrency(barber.gapRemaining)}. A meta diaria sugerida e ${formatCurrency(barber.dailyRevenueTarget)}.`;
+  }
+  return 'Sem meta ativa. Defina a meta mensal para liberar o plano de ataque completo.';
+};
+
 const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardResponse) => {
-  const topService = dashboard.appbarber?.topServices?.[0];
+  const topServices = dashboard.appbarber?.topServices || [];
+  const topService = topServices[0];
+  const secondService = topServices[1];
   const nextAppointments = findAppointmentsFor(dashboard, barber.barberName);
   const avgTicket = dashboard.appbarber?.summary.averageTicket || 0;
-  const indications: Array<{ title: string; text: string; tone: 'ok' | 'attention' | 'below'; icon: React.ElementType }> = [];
+  const indications: Array<{ title: string; text: string; tone: Tone; icon: React.ElementType }> = [];
 
   if (barber.targetTotal <= 0) {
     indications.push({
       title: 'Definir meta agora',
-      text: 'Sem meta cadastrada, o painel mostra produção real, mas não consegue orientar o esforço necessário.',
+      text: 'Sem meta cadastrada, o painel mostra producao real, mas nao consegue orientar o esforco necessario.',
       tone: 'attention',
       icon: Target,
     });
@@ -88,7 +139,7 @@ const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardRespo
   if (barber.goalSource === 'prediction' && barber.goalPrediction) {
     indications.push({
       title: 'Meta prevista pelo AppBarber',
-      text: `Sugestão de ${formatCurrency(barber.goalPrediction.suggestedTarget)} usando agenda, ritmo atual e ticket médio.`,
+      text: `Sugestao de ${formatCurrency(barber.goalPrediction.suggestedTarget)} usando agenda, ritmo atual e ticket medio.`,
       tone: 'attention',
       icon: Wand2,
     });
@@ -97,14 +148,14 @@ const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardRespo
   if (barber.gapRemaining > 0) {
     indications.push({
       title: 'Foco de faturamento',
-      text: `Faltam ${formatCurrency(barber.gapRemaining)} para bater a meta. O caminho curto é combinar agenda cheia com aumento de ticket.`,
+      text: `Faltam ${formatCurrency(barber.gapRemaining)}. O caminho curto e agenda cheia, complemento e ticket mais alto.`,
       tone: barber.tone,
       icon: TrendingUp,
     });
   } else if (barber.targetTotal > 0) {
     indications.push({
       title: 'Meta controlada',
-      text: 'Manter o ritmo, proteger agenda futura e puxar serviços extras para ampliar margem.',
+      text: 'Manter ritmo, proteger agenda futura e puxar servicos extras para ampliar margem.',
       tone: 'ok',
       icon: CheckCircle2,
     });
@@ -112,8 +163,8 @@ const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardRespo
 
   if (barber.kpisToday.ticketAvg > 0 && avgTicket > 0 && barber.kpisToday.ticketAvg < avgTicket) {
     indications.push({
-      title: 'Subir ticket médio',
-      text: `Ticket de hoje em ${formatCurrency(barber.kpisToday.ticketAvg)}. Meta prática: chegar perto da média da casa (${formatCurrency(avgTicket)}).`,
+      title: 'Subir ticket medio',
+      text: `Ticket de hoje em ${formatCurrency(barber.kpisToday.ticketAvg)}. Buscar a media da casa: ${formatCurrency(avgTicket)}.`,
       tone: 'attention',
       icon: Gauge,
     });
@@ -122,24 +173,249 @@ const buildIndications = (barber: BarberDashboardItem, dashboard: DashboardRespo
   if (topService) {
     indications.push({
       title: 'Oferta principal',
-      text: `Usar ${topService.name} como oferta-guia da conversa. É um dos serviços com maior tração no mês.`,
+      text: `Usar ${topService.name} como oferta-guia. E um dos servicos com maior tracao no mes.`,
       tone: 'ok',
       icon: Scissors,
+    });
+  }
+
+  if (secondService) {
+    indications.push({
+      title: 'Combo inteligente',
+      text: `Conectar ${topService?.name || 'servico base'} com ${secondService.name} para aumentar ticket sem depender de mais horarios.`,
+      tone: 'attention',
+      icon: Sparkles,
     });
   }
 
   if (nextAppointments.length > 0) {
     const next = nextAppointments[0];
     indications.push({
-      title: 'Próxima agenda',
-      text: `Próximo atendimento: ${next.time || '--:--'} - ${next.service || 'serviço'}. Conferir oportunidade de complemento antes do fechamento.`,
+      title: 'Proxima agenda',
+      text: `${next.time || '--:--'} - ${next.service || 'servico'}. Conferir complemento antes do fechamento.`,
       tone: 'attention',
       icon: Calendar,
     });
   }
 
-  return indications.slice(0, 4);
+  return indications.slice(0, 5);
 };
+
+function PremiumButton({
+  children,
+  icon: Icon,
+  onClick,
+  disabled,
+  variant = 'dark',
+}: {
+  children: React.ReactNode;
+  icon: React.ElementType;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: 'dark' | 'gold' | 'cyan' | 'emerald' | 'amber';
+}) {
+  const variants = {
+    dark: 'border-white/10 bg-white/5 text-white hover:bg-white/10',
+    gold: 'border-[#c5a059]/40 bg-[#c5a059] text-zinc-950 hover:bg-[#d6b875]',
+    cyan: 'border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20',
+    emerald: 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/20',
+    amber: 'border-amber-300/30 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20',
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${variants[variant]}`}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{children}</span>
+    </button>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  tone = 'ok',
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: React.ElementType;
+  tone?: Tone;
+}) {
+  return (
+    <div
+      className="relative w-full min-w-0 overflow-hidden rounded-lg border border-white/10 bg-white/[0.055] p-4 shadow-2xl shadow-black/20 backdrop-blur-xl"
+      style={{ maxWidth: 'calc(100vw - 3rem)' }}
+    >
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm text-white/55">{label}</p>
+          <p className="mt-2 text-2xl font-black text-white sm:text-3xl">{value}</p>
+          <p className="mt-1 text-xs text-white/45">{detail}</p>
+        </div>
+        <div className={`rounded-lg border p-2.5 ${toneStyles[tone]}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RingProgress({ value, label, subLabel, tone }: { value: number; label: string; subLabel: string; tone: Tone }) {
+  const safeValue = clamp(value);
+  const color = toneColors[tone];
+
+  return (
+    <div className="relative mx-auto flex aspect-square w-full max-w-[260px] items-center justify-center">
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background: `conic-gradient(${color} ${safeValue}%, rgba(255,255,255,0.08) 0)`,
+          boxShadow: `0 0 42px ${color}22`,
+        }}
+      />
+      <div className="absolute inset-[12px] rounded-full border border-white/10 bg-zinc-950" />
+      <div className="relative text-center">
+        <p className="text-5xl font-black text-white">{formatPercent(safeValue)}</p>
+        <p className="mt-2 text-sm font-bold text-white/80">{label}</p>
+        <p className="mt-1 text-xs text-white/45">{subLabel}</p>
+      </div>
+    </div>
+  );
+}
+
+function Sparkline({ values, labels }: { values: number[]; labels: string[] }) {
+  const width = 320;
+  const height = 120;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = Math.max(max - min, 1);
+  const points = values.map((value, index) => {
+    const x = values.length <= 1 ? width / 2 : (index / (values.length - 1)) * width;
+    const y = height - ((value - min) / range) * (height - 24) - 12;
+    return { x, y, value, label: labels[index] };
+  });
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const area = `${path} L ${width} ${height} L 0 ${height} Z`;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-white/10 bg-black/20 p-4">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-36 w-full" role="img" aria-label="Historico de receita">
+        <defs>
+          <linearGradient id="spark-area" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#c5a059" stopOpacity="0.42" />
+            <stop offset="100%" stopColor="#c5a059" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#spark-area)" />
+        <path d={path} fill="none" stroke="#c5a059" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((point) => (
+          <g key={`${point.label}-${point.value}`}>
+            <circle cx={point.x} cy={point.y} r="4" fill="#f8e4b5" />
+          </g>
+        ))}
+      </svg>
+      <div className="grid grid-cols-3 gap-2 text-xs text-white/50">
+        {points.map((point) => (
+          <div key={point.label} className="min-w-0">
+            <p className="truncate capitalize">{point.label}</p>
+            <p className="font-bold text-white">{compactCurrency(point.value)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RevenueBars({ barbers, selectedId, onSelect }: { barbers: BarberDashboardItem[]; selectedId: string; onSelect: (id: string) => void }) {
+  const maxRevenue = Math.max(...barbers.map((item) => item.realizedMonth), 1);
+
+  return (
+    <div className="space-y-3">
+      {barbers.slice(0, 8).map((barber, index) => {
+        const width = clamp((barber.realizedMonth / maxRevenue) * 100);
+        const selected = barber.id === selectedId;
+
+        return (
+          <button
+            key={barber.id}
+            onClick={() => onSelect(barber.id)}
+            className={`group grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border p-3 text-left transition-all ${
+              selected ? 'border-[#c5a059]/70 bg-[#c5a059]/10' : 'border-white/10 bg-white/[0.035] hover:border-white/25 hover:bg-white/[0.06]'
+            }`}
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-black/30 text-sm font-black">
+              {index + 1}
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="truncate font-bold text-white">{toShortName(barber.barberName)}</p>
+                <p className="text-sm font-black text-white">{compactCurrency(barber.realizedMonth)}</p>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: `linear-gradient(90deg, ${toneColors[barber.tone]}, #f8e4b5)` }}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${width}%` }}
+                  transition={{ duration: 0.7, delay: index * 0.04 }}
+                />
+              </div>
+            </div>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${toneStyles[barber.tone]}`}>
+              {formatPercent(barber.progressPercent)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ServiceChart({ services }: { services: NonNullable<DashboardResponse['appbarber']>['topServices'] }) {
+  const maxRevenue = Math.max(...services.map((service) => Number(service.revenue || 0)), 1);
+
+  if (!services.length) {
+    return <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4 text-sm text-white/45">Sem servicos suficientes para montar o grafico.</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {services.slice(0, 7).map((service, index) => {
+        const width = clamp((Number(service.revenue || 0) / maxRevenue) * 100);
+        return (
+          <div key={service.name} className="grid grid-cols-[1fr_auto] gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="truncate font-semibold text-white">{service.name}</span>
+                <span className="text-white/45">{service.appointments} ag.</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                <motion.div
+                  className="h-full rounded-full bg-[#c5a059]"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${width}%` }}
+                  transition={{ duration: 0.65, delay: index * 0.05 }}
+                />
+              </div>
+            </div>
+            <strong className="text-sm text-white">{compactCurrency(service.revenue || 0)}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4 text-sm text-white/45">{text}</div>;
+}
 
 export default function BarberGoalsDashboard() {
   const [data, setData] = useState<DashboardResponse>(dashboardFallback);
@@ -150,10 +426,11 @@ export default function BarberGoalsDashboard() {
   const [error, setError] = useState('');
   const [savingGoal, setSavingGoal] = useState(false);
   const [creatingPredictions, setCreatingPredictions] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
   const [goalDraft, setGoalDraft] = useState({
     targetTotal: 0,
     guaranteedSubscription: 0,
-    commissionRate: 0.45, // 45% — taxa confirmada pelo gestor (2026-06-01)
+    commissionRate: 0.45,
     workingDays: 24,
   });
 
@@ -169,7 +446,7 @@ export default function BarberGoalsDashboard() {
     } catch {
       setData(dashboardFallback);
       setSelectedId(dashboardFallback.barbers[0]?.id || '');
-      setError('Dados principais indisponíveis no momento.');
+      setError('Dados principais indisponiveis no momento.');
     } finally {
       setLoading(false);
     }
@@ -190,7 +467,7 @@ export default function BarberGoalsDashboard() {
     setGoalDraft({
       targetTotal: selectedBarber.targetTotal || 0,
       guaranteedSubscription: selectedBarber.guaranteedSubscription || 0,
-      commissionRate: selectedBarber.commissionRate || 0.4,
+      commissionRate: normalizeCommissionRate(selectedBarber.commissionRate),
       workingDays: selectedBarber.workingDays || 24,
     });
   }, [selectedBarber]);
@@ -200,17 +477,27 @@ export default function BarberGoalsDashboard() {
     const totalRealized = data.barbers.reduce((sum, item) => sum + item.realizedMonth, 0);
     const totalGap = data.barbers.reduce((sum, item) => sum + item.gapRemaining, 0);
     const totalToday = data.barbers.reduce((sum, item) => sum + item.realizedToday, 0);
+    const totalWeek = data.barbers.reduce((sum, item) => sum + item.realizedWeek, 0);
+    const totalCustomersToday = data.barbers.reduce((sum, item) => sum + item.kpisToday.customersCount, 0);
+    const totalCommissionTarget = data.barbers.reduce((sum, item) => sum + item.dailyCommissionTarget, 0);
     const progress = totalTarget > 0 ? Number(((totalRealized / totalTarget) * 100).toFixed(1)) : 0;
-    return { totalTarget, totalRealized, totalGap, totalToday, progress };
+    const activeGoals = data.barbers.filter((item) => item.targetTotal > 0).length;
+    return { totalTarget, totalRealized, totalGap, totalToday, totalWeek, totalCustomersToday, totalCommissionTarget, progress, activeGoals };
   }, [data.barbers]);
 
   const appbarberSummary = data.appbarber?.summary;
   const historicalRevenue = data.appbarber?.historicalRevenue;
   const selectedIndications = selectedBarber ? buildIndications(selectedBarber, data) : [];
-  const selectedAppointments = selectedBarber ? findAppointmentsFor(data, selectedBarber.barberName).slice(0, 4) : [];
+  const selectedAppointments = selectedBarber ? findAppointmentsFor(data, selectedBarber.barberName).slice(0, 5) : [];
   const selectedHistory = historicalRevenue?.byBarber.find(
     (item) => item.barberName.trim().toLowerCase() === selectedBarber?.barberName.trim().toLowerCase(),
   );
+  const historyMonths = selectedHistory?.months?.slice().reverse() || [];
+  const historyValues = historyMonths.length > 0 ? historyMonths.map((item) => item.revenue) : (historicalRevenue?.months || []).slice().reverse().map((item) => item.totalRevenue);
+  const historyLabels = historyMonths.length > 0 ? historyMonths.map((item) => item.label) : (historicalRevenue?.months || []).slice().reverse().map((item) => item.label);
+  const bestBarber = rankedBarbers[0];
+  const pressureBarbers = rankedBarbers.filter((barber) => barber.tone === 'below').length;
+  const houseTicket = appbarberSummary?.averageTicket || 0;
 
   const saveGoal = async () => {
     if (!selectedBarber) return;
@@ -238,9 +525,9 @@ export default function BarberGoalsDashboard() {
         const refreshed = (json.dashboard.barbers || []).find((item: BarberDashboardItem) => item.barberUserId === selectedBarber.barberUserId);
         if (refreshed) setSelectedId(refreshed.id);
       }
-      setNotice('Meta salva e recomendações recalculadas com dados reais.');
+      setNotice('Meta salva e recomendacoes recalculadas com dados reais.');
     } catch (err: any) {
-      setError(err?.message || 'Não foi possível salvar a meta.');
+      setError(err?.message || 'Nao foi possivel salvar a meta.');
     } finally {
       setSavingGoal(false);
     }
@@ -264,7 +551,7 @@ export default function BarberGoalsDashboard() {
       }
       setNotice(`${json?.created || 0} metas previstas foram aplicadas com base no AppBarber.`);
     } catch (err: any) {
-      setError(err?.message || 'Não foi possível criar as metas previstas.');
+      setError(err?.message || 'Nao foi possivel criar as metas previstas.');
     } finally {
       setCreatingPredictions(false);
     }
@@ -284,9 +571,9 @@ export default function BarberGoalsDashboard() {
       if (json.confirmations) {
         setData((prev) => ({ ...prev, confirmations: json.confirmations || [] }));
       }
-      setNotice(json.mode === 'persistent' ? 'Confirmações enviadas e persistidas no sistema.' : json.message || 'Fluxo executado.');
+      setNotice(json.mode === 'persistent' ? 'Confirmacoes enviadas e persistidas no sistema.' : json.message || 'Fluxo executado.');
     } catch {
-      setNotice('Fluxo executado em modo estável com dados locais.');
+      setNotice('Fluxo executado em modo estavel com dados locais.');
     } finally {
       setSyncing('');
     }
@@ -294,10 +581,13 @@ export default function BarberGoalsDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white px-4 py-6 md:px-8">
-        <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
-          <p className="text-lg font-semibold">Carregando reunião operacional...</p>
-          <p className="text-sm text-zinc-400 mt-2">Buscando agenda, equipe, metas e financeiro real.</p>
+      <div className="goals-premium-bg flex min-h-screen items-center justify-center bg-[#070707] px-4 text-white">
+        <div className="w-full max-w-lg rounded-lg border border-white/10 bg-white/[0.055] p-8 text-center shadow-2xl shadow-black/40 backdrop-blur-xl">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full border border-[#c5a059]/30 bg-[#c5a059]/10">
+            <RefreshCw className="h-6 w-6 animate-spin text-[#c5a059]" />
+          </div>
+          <p className="text-xl font-black">Carregando central de metas</p>
+          <p className="mt-2 text-sm text-white/50">Buscando agenda, equipe, metas e financeiro real.</p>
         </div>
       </div>
     );
@@ -305,175 +595,277 @@ export default function BarberGoalsDashboard() {
 
   if (!selectedBarber) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white px-4 py-6 md:px-8">
-        <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
-          <p className="text-lg font-semibold">Nenhum barbeiro encontrado.</p>
-          <p className="text-sm text-zinc-400 mt-2">Verifique a integração do AppBarber e atualize a página.</p>
+      <div className="goals-premium-bg flex min-h-screen items-center justify-center bg-[#070707] px-4 text-white">
+        <div className="w-full max-w-lg rounded-lg border border-white/10 bg-white/[0.055] p-8 text-center shadow-2xl shadow-black/40 backdrop-blur-xl">
+          <p className="text-xl font-black">Nenhum barbeiro encontrado.</p>
+          <p className="mt-2 text-sm text-white/50">Verifique a integracao do AppBarber e atualize a pagina.</p>
+          <div className="mt-5">
+            <PremiumButton icon={RefreshCw} onClick={loadDashboard} variant="gold">
+              Atualizar
+            </PremiumButton>
+          </div>
         </div>
       </div>
     );
   }
 
-  const progressWidth = Math.max(0, Math.min(100, selectedBarber.progressPercent || 0));
-  const teamProgressWidth = Math.max(0, Math.min(100, teamTotals.progress || 0));
-
-  const summaryCards = [
-    { label: 'Meta da equipe', value: formatCurrency(teamTotals.totalTarget), icon: Target },
-    { label: 'Realizado no mês', value: formatCurrency(teamTotals.totalRealized), icon: Wallet },
-    { label: 'Gap da equipe', value: formatCurrency(teamTotals.totalGap), icon: TrendingUp },
-    { label: 'Hoje na agenda', value: String(appbarberSummary?.todayAppointments || 0), icon: Calendar },
-  ];
-
+  const teamProgressWidth = clamp(teamTotals.progress);
+  const selectedProgressWidth = clamp(selectedBarber.progressPercent);
   const actionCards = [
     { label: 'Clientes', value: selectedBarber.actionPlan.customersNeeded, icon: Users },
     { label: 'Sobrancelhas', value: selectedBarber.actionPlan.eyebrowNeeded, icon: Sparkles },
     { label: 'Selagens', value: selectedBarber.actionPlan.sealingNeeded, icon: Scissors },
     { label: 'Produtos', value: selectedBarber.actionPlan.productsNeeded, icon: ShoppingBag },
   ];
+  const summaryCards: Array<{
+    label: string;
+    value: string;
+    detail: string;
+    icon: React.ElementType;
+    tone: Tone;
+  }> = [
+    {
+      label: 'Meta da equipe',
+      value: compactCurrency(teamTotals.totalTarget),
+      detail: `${teamTotals.activeGoals}/${data.barbers.length} metas ativas`,
+      icon: Target,
+      tone: 'ok' as Tone,
+    },
+    {
+      label: 'Realizado no mes',
+      value: compactCurrency(teamTotals.totalRealized),
+      detail: `${formatPercent(teamTotals.progress)} do alvo`,
+      icon: Wallet,
+      tone: teamTotals.progress >= 70 ? 'ok' : teamTotals.progress >= 35 ? 'attention' : 'below',
+    },
+    {
+      label: 'Gap em aberto',
+      value: compactCurrency(teamTotals.totalGap),
+      detail: pressureBarbers > 0 ? `${pressureBarbers} barbeiros em aceleracao` : 'Ritmo sem alerta critico',
+      icon: TrendingUp,
+      tone: teamTotals.totalGap <= 0 ? 'ok' : pressureBarbers > 0 ? 'below' : 'attention',
+    },
+    {
+      label: 'Hoje na agenda',
+      value: String(appbarberSummary?.todayAppointments || 0),
+      detail: `${compactCurrency(teamTotals.totalToday)} previstos hoje`,
+      icon: Calendar,
+      tone: 'attention' as Tone,
+    },
+    {
+      label: 'Ticket medio',
+      value: compactCurrency(houseTicket),
+      detail: `${appbarberSummary?.monthAppointments || 0} atendimentos no mes`,
+      icon: Gauge,
+      tone: 'ok' as Tone,
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white">
-      <div className="border-b border-zinc-800 bg-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 py-5 md:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <a href="/" className="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white mb-3">
-                <ArrowLeft className="h-4 w-4" /> Voltar ao site
-              </a>
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-black tracking-tight md:text-5xl">Reunião de performance</h1>
-                <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold uppercase text-emerald-200">
-                  Dados reais AppBarber
-                </span>
-              </div>
-              <p className="mt-2 max-w-3xl text-zinc-300">
-                Metas, produção, agenda e indicações para cada barbeiro faturar mais com ação clara.
-              </p>
+    <div className="goals-premium-bg min-h-screen overflow-x-hidden bg-[#070707] text-white">
+      <header className="relative border-b border-white/10 bg-black/40 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 py-5 pl-4 pr-8 sm:px-6 md:px-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <a href="/" className="mb-4 inline-flex items-center gap-2 text-sm text-white/55 transition-colors hover:text-white">
+              <ArrowLeft className="h-4 w-4" />
+              Voltar ao site
+            </a>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="rounded-full border border-[#c5a059]/30 bg-[#c5a059]/10 px-3 py-1 text-xs font-bold text-[#f8e4b5]">
+                AppBarber ao vivo
+              </span>
+              <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-3 py-1 text-xs font-bold text-emerald-100">
+                Producao real
+              </span>
             </div>
+            <h1 className="mt-4 max-w-full break-words text-4xl font-black leading-tight text-white sm:max-w-4xl sm:text-5xl lg:text-6xl">
+              Central premium de metas e performance
+            </h1>
+            <p className="mt-3 max-w-full break-words text-base leading-relaxed text-white/58 sm:max-w-3xl">
+              Um painel de reuniao para transformar agenda, historico e metas em decisoes claras para cada barbeiro faturar mais.
+            </p>
+          </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={loadDashboard}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold hover:bg-zinc-800"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Atualizar
-              </button>
-              <button
-                onClick={createPredictedGoals}
-                disabled={creatingPredictions}
-                className="inline-flex items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-50"
-              >
-                {creatingPredictions ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                {creatingPredictions ? 'Criando...' : 'Criar metas previstas'}
-              </button>
-              <button
-                onClick={() => runCampaign('morning')}
-                disabled={!!syncing}
-                className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-4 py-3 text-sm font-semibold hover:bg-emerald-500/25 disabled:opacity-50"
-              >
-                {syncing === 'morning' ? 'Disparando...' : 'Confirmar início'}
-              </button>
-              <button
-                onClick={() => runCampaign('30min')}
-                disabled={!!syncing}
-                className="rounded-lg border border-amber-400/30 bg-amber-500/15 px-4 py-3 text-sm font-semibold hover:bg-amber-500/25 disabled:opacity-50"
-              >
-                {syncing === '30min' ? 'Enviando...' : 'Lembrete 30 min'}
-              </button>
-            </div>
+          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap lg:w-auto lg:justify-end">
+            <PremiumButton icon={RefreshCw} onClick={loadDashboard} variant="dark">
+              Atualizar
+            </PremiumButton>
+            <PremiumButton icon={presentationMode ? Eye : Maximize2} onClick={() => setPresentationMode((prev) => !prev)} variant="dark">
+              {presentationMode ? 'Editar' : 'Apresentacao'}
+            </PremiumButton>
+            <PremiumButton icon={creatingPredictions ? RefreshCw : Wand2} onClick={createPredictedGoals} disabled={creatingPredictions} variant="cyan">
+              {creatingPredictions ? 'Criando' : 'Metas previstas'}
+            </PremiumButton>
+            {!presentationMode && (
+              <>
+                <PremiumButton icon={MessageCircle} onClick={() => runCampaign('morning')} disabled={!!syncing} variant="emerald">
+                  {syncing === 'morning' ? 'Disparando' : 'Confirmar inicio'}
+                </PremiumButton>
+                <PremiumButton icon={Clock3} onClick={() => runCampaign('30min')} disabled={!!syncing} variant="amber">
+                  {syncing === '30min' ? 'Enviando' : 'Lembrete 30 min'}
+                </PremiumButton>
+              </>
+            )}
           </div>
         </div>
-      </div>
+      </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-8">
-        {error && (
-          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            {error}
-          </div>
-        )}
+      <main className="relative mx-auto max-w-7xl space-y-6 py-6 pl-4 pr-8 sm:px-6 md:px-8">
+        <AnimatePresence>
+          {(error || notice) && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className={`rounded-lg border px-4 py-3 text-sm font-semibold ${
+                error ? 'border-amber-400/30 bg-amber-500/10 text-amber-100' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+              }`}
+            >
+              {error || notice}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {notice && (
-          <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            {notice}
-          </div>
-        )}
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {summaryCards.map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm text-zinc-400">{label}</p>
-                <Icon className="h-5 w-5 text-gold" />
-              </div>
-              <p className="text-3xl font-black tracking-tight">{value}</p>
-            </div>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {summaryCards.map((card) => (
+            <React.Fragment key={card.label}>
+              <MetricTile {...card} />
+            </React.Fragment>
           ))}
         </section>
 
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm text-zinc-400">Progresso geral da equipe</p>
-              <h2 className="mt-1 text-2xl font-black">{formatPercent(teamTotals.progress)} da meta total</h2>
+        <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/30 backdrop-blur-xl md:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-sm font-bold text-[#f8e4b5]">Placar da equipe</p>
+                <h2 className="mt-1 text-3xl font-black text-white">Ritmo do mes</h2>
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/50">
+                  A meta geral cruza faturamento realizado, agenda do AppBarber e gap de cada barbeiro.
+                </p>
+              </div>
+              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-bold text-white/70">
+                <Activity className="h-4 w-4 text-emerald-300" />
+                Gerado {new Date(data.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
             </div>
-            <p className="text-sm text-zinc-300">
-              Hoje: <strong>{formatCurrency(teamTotals.totalToday)}</strong> • Mês: <strong>{formatCurrency(teamTotals.totalRealized)}</strong>
-            </p>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-[270px_1fr]">
+              <div className="rounded-lg border border-white/10 bg-black/20 p-5">
+                <RingProgress value={teamProgressWidth} label="Meta da equipe" subLabel={`${compactCurrency(teamTotals.totalRealized)} realizados`} tone={teamTotals.progress >= 70 ? 'ok' : teamTotals.progress >= 35 ? 'attention' : 'below'} />
+                <div className="mt-5 grid grid-cols-2 gap-3 text-center text-sm">
+                  <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                    <p className="text-white/45">Semana</p>
+                    <strong>{compactCurrency(teamTotals.totalWeek)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                    <p className="text-white/45">Clientes hoje</p>
+                    <strong>{teamTotals.totalCustomersToday}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-black text-white">Ranking de receita</h3>
+                    <p className="text-sm text-white/45">Clique em um barbeiro para abrir o plano individual.</p>
+                  </div>
+                  <Trophy className="h-6 w-6 text-[#c5a059]" />
+                </div>
+                <RevenueBars barbers={rankedBarbers} selectedId={selectedBarber.id} onSelect={setSelectedId} />
+              </div>
+            </div>
           </div>
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-800">
-            <div className="h-full bg-gold" style={{ width: `${teamProgressWidth}%` }} />
+
+          <div className="rounded-lg border border-[#c5a059]/25 bg-[#c5a059]/[0.075] p-5 shadow-2xl shadow-black/30 backdrop-blur-xl md:p-6">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-[#f8e4b5]">Barbeiro em foco</p>
+                <div className="mt-2 flex items-start gap-3">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[#c5a059]/35 bg-black/30 text-xl font-black text-[#f8e4b5]">
+                    {getInitials(selectedBarber.barberName)}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="break-words text-3xl font-black text-white">{selectedBarber.barberName}</h2>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${toneStyles[selectedBarber.tone]}`}>
+                        {toneLabels[selectedBarber.tone]}
+                      </span>
+                      <span className="rounded-full border border-cyan-300/25 bg-cyan-400/10 px-2.5 py-1 text-xs font-bold text-cyan-100">
+                        {selectedBarber.goalSource === 'prediction' ? 'Meta prevista' : 'Meta manual'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <RingProgress value={selectedProgressWidth} label="Progresso" subLabel={formatCurrency(selectedBarber.realizedMonth)} tone={selectedBarber.tone} />
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                <p className="text-xs text-white/45">Meta</p>
+                <strong className="text-lg">{compactCurrency(selectedBarber.targetTotal)}</strong>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                <p className="text-xs text-white/45">Gap</p>
+                <strong className="text-lg">{compactCurrency(selectedBarber.gapRemaining)}</strong>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                <p className="text-xs text-white/45">Diaria</p>
+                <strong className="text-lg">{compactCurrency(selectedBarber.dailyRevenueTarget)}</strong>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-lg border border-white/10 bg-black/25 p-4">
+              <div className="flex items-start gap-3">
+                <Zap className="mt-1 h-5 w-5 shrink-0 text-[#f8e4b5]" />
+                <div>
+                  <h3 className="font-black text-white">Leitura executiva</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-white/58">{getMomentum(selectedBarber, houseTicket)}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
+        <section className="grid gap-6 xl:grid-cols-[0.72fr_1.28fr]">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-zinc-400">Equipe</p>
-                <h2 className="text-2xl font-black">Performance por barbeiro</h2>
+                <p className="text-sm font-bold text-[#f8e4b5]">Selecionar profissional</p>
+                <h2 className="text-2xl font-black">Equipe</h2>
               </div>
-              <Trophy className="h-6 w-6 text-gold" />
+              <Users className="h-6 w-6 text-white/50" />
             </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              {rankedBarbers.map((barber, index) => {
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              {rankedBarbers.map((barber) => {
                 const selected = barber.id === selectedBarber.id;
-                const width = Math.max(0, Math.min(100, barber.progressPercent || 0));
                 return (
                   <button
                     key={barber.id}
                     onClick={() => setSelectedId(barber.id)}
                     className={`rounded-lg border p-4 text-left transition-all ${
-                      selected ? 'border-gold bg-gold/10' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
+                      selected ? 'border-[#c5a059]/70 bg-[#c5a059]/10' : 'border-white/10 bg-black/20 hover:border-white/25'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-zinc-500">#{index + 1}</p>
-                        <h3 className="truncate text-lg font-black">{toShortName(barber.barberName)}</h3>
-                        <p className="mt-1 text-xs text-zinc-400">{barber.barberName}</p>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] font-black">
+                          {getInitials(barber.barberName)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-black text-white">{toShortName(barber.barberName)}</p>
+                          <p className="mt-0.5 text-xs text-white/42">{compactCurrency(barber.realizedMonth)} no mes</p>
+                        </div>
                       </div>
-                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${toneStyles[barber.tone]}`}>
-                        {barber.goalSource === 'prediction' ? 'prevista' : toneLabels[barber.tone]}
-                      </span>
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${toneStyles[barber.tone]}`}>{formatPercent(barber.progressPercent)}</span>
                     </div>
-                    <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <p className="text-zinc-500">Mês</p>
-                        <p className="font-bold">{formatCurrency(barber.realizedMonth)}</p>
-                      </div>
-                      <div>
-                        <p className="text-zinc-500">Hoje</p>
-                        <p className="font-bold">{formatCurrency(barber.realizedToday)}</p>
-                      </div>
-                      <div>
-                        <p className="text-zinc-500">Meta</p>
-                        <p className="font-bold">{formatCurrency(barber.targetTotal)}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-800">
-                      <div className={barber.tone === 'ok' ? 'h-full bg-emerald-400' : barber.tone === 'attention' ? 'h-full bg-amber-400' : 'h-full bg-rose-400'} style={{ width: `${width}%` }} />
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${clamp(barber.progressPercent)}%`, background: toneColors[barber.tone] }}
+                      />
                     </div>
                   </button>
                 );
@@ -481,177 +873,170 @@ export default function BarberGoalsDashboard() {
             </div>
           </div>
 
-          <div className="space-y-4">
-            <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-zinc-400">Barbeiro selecionado</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-2xl font-black">{selectedBarber.barberName}</h2>
-                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${
-                      selectedBarber.goalSource === 'prediction'
-                        ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'
-                        : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
-                    }`}>
-                      {selectedBarber.goalSource === 'prediction' ? 'meta prevista' : 'meta manual'}
-                    </span>
+          <div className="space-y-6">
+            {!presentationMode && (
+              <section className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-[#f8e4b5]">Meta individual</p>
+                    <h2 className="text-2xl font-black">Ajustar e recalcular</h2>
                   </div>
+                  <ShieldCheck className="h-6 w-6 text-emerald-300" />
                 </div>
-                <Award className="h-6 w-6 text-gold" />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-xs text-zinc-400 uppercase tracking-wide">
-                  Meta mensal
-                  <input
-                    type="number"
-                    min={0}
-                    value={goalDraft.targetTotal}
-                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, targetTotal: Number(event.target.value || 0) }))}
-                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="text-xs text-zinc-400 uppercase tracking-wide">
-                  Assinatura garantida
-                  <input
-                    type="number"
-                    min={0}
-                    value={goalDraft.guaranteedSubscription}
-                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, guaranteedSubscription: Number(event.target.value || 0) }))}
-                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="text-xs text-zinc-400 uppercase tracking-wide">
-                  Comissão
-                  <input
-                    type="number"
-                    min={0.01}
-                    max={1}
-                    step={0.01}
-                    value={goalDraft.commissionRate}
-                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, commissionRate: Number(event.target.value || 0.4) }))}
-                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="text-xs text-zinc-400 uppercase tracking-wide">
-                  Dias úteis
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={goalDraft.workingDays}
-                    onChange={(event) => setGoalDraft((prev) => ({ ...prev, workingDays: Number(event.target.value || 24) }))}
-                    className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
-                  />
-                </label>
-              </div>
-
-              <button
-                onClick={saveGoal}
-                disabled={savingGoal}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gold px-4 py-3 text-sm font-black text-zinc-950 hover:bg-gold/80 disabled:opacity-60"
-              >
-                {savingGoal ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {savingGoal ? 'Salvando...' : 'Salvar meta e recalcular'}
-              </button>
-            </section>
-
-            {selectedBarber.goalPrediction && (
-              <section className="rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-black">Previsão AppBarber</h3>
-                  <Wand2 className="h-5 w-5 text-cyan-200" />
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <label className="text-sm font-semibold text-white/62">
+                    Meta mensal
+                    <input
+                      type="number"
+                      min={0}
+                      value={goalDraft.targetTotal}
+                      onChange={(event) => setGoalDraft((prev) => ({ ...prev, targetTotal: Number(event.target.value || 0) }))}
+                      className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-white outline-none transition-colors focus:border-[#c5a059]/70"
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-white/62">
+                    Assinatura
+                    <input
+                      type="number"
+                      min={0}
+                      value={goalDraft.guaranteedSubscription}
+                      onChange={(event) => setGoalDraft((prev) => ({ ...prev, guaranteedSubscription: Number(event.target.value || 0) }))}
+                      className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-white outline-none transition-colors focus:border-[#c5a059]/70"
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-white/62">
+                    Comissao
+                    <input
+                      type="number"
+                      min={0.01}
+                      max={1}
+                      step={0.01}
+                      value={goalDraft.commissionRate}
+                      onChange={(event) => setGoalDraft((prev) => ({ ...prev, commissionRate: Number(event.target.value || 0.45) }))}
+                      className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-white outline-none transition-colors focus:border-[#c5a059]/70"
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-white/62">
+                    Dias uteis
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={goalDraft.workingDays}
+                      onChange={(event) => setGoalDraft((prev) => ({ ...prev, workingDays: Number(event.target.value || 24) }))}
+                      className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-white outline-none transition-colors focus:border-[#c5a059]/70"
+                    />
+                  </label>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
-                    <p className="text-xs text-cyan-100/70">Meta sugerida</p>
-                    <strong className="text-xl">{formatCurrency(selectedBarber.goalPrediction.suggestedTarget)}</strong>
-                  </div>
-                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
-                    <p className="text-xs text-cyan-100/70">Faturamento projetado</p>
-                    <strong className="text-xl">{formatCurrency(selectedBarber.goalPrediction.projectedRevenue)}</strong>
-                  </div>
-                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
-                    <p className="text-xs text-cyan-100/70">Oportunidade</p>
-                    <strong className="text-xl">{formatCurrency(selectedBarber.goalPrediction.upsellOpportunity)}</strong>
-                  </div>
-                  <div className="rounded-lg border border-cyan-400/20 bg-zinc-950/70 p-3">
-                    <p className="text-xs text-cyan-100/70">Confiança</p>
-                    <strong className="text-xl capitalize">{selectedBarber.goalPrediction.confidence}</strong>
-                  </div>
+                <div className="mt-4">
+                  <PremiumButton icon={savingGoal ? RefreshCw : Save} onClick={saveGoal} disabled={savingGoal} variant="gold">
+                    {savingGoal ? 'Salvando' : 'Salvar meta e recalcular'}
+                  </PremiumButton>
                 </div>
-                <p className="mt-3 text-xs text-cyan-100/70">
-                  Base: {selectedBarber.goalPrediction.basis.appointmentsCount} agendamentos, ticket efetivo {formatCurrency(selectedBarber.goalPrediction.basis.effectiveTicket)} e {selectedBarber.goalPrediction.basis.remainingDays} dias restantes.
-                </p>
               </section>
             )}
 
-            <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-black">Indicadores da meta</h3>
-                <BarChart3 className="h-5 w-5 text-cyan-300" />
+            <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+              <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-[#f8e4b5]">Plano de aceleracao</p>
+                    <h2 className="text-2xl font-black">O que fazer para bater</h2>
+                  </div>
+                  <ClipboardList className="h-6 w-6 text-white/50" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {actionCards.map(({ label, value, icon: Icon }) => {
+                    const tone = getActionTone(value);
+                    return (
+                      <div key={label} className={`rounded-lg border p-4 ${toneStyles[tone]}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Icon className="h-5 w-5" />
+                            <span className="text-sm font-bold">{label}</span>
+                          </div>
+                          <strong className="text-4xl font-black">{value}</strong>
+                        </div>
+                        <p className="mt-2 text-xs opacity-75">{value <= 0 ? 'Em dia' : 'Necessario para fechar o gap'}</p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-400">Realizado</span>
-                  <strong>{formatCurrency(selectedBarber.realizedMonth)}</strong>
+
+              <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-[#f8e4b5]">Previsao</p>
+                    <h2 className="text-2xl font-black">AppBarber intelligence</h2>
+                  </div>
+                  <Wand2 className="h-6 w-6 text-cyan-200" />
                 </div>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-400">Gap</span>
-                  <strong>{formatCurrency(selectedBarber.gapRemaining)}</strong>
-                </div>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-400">Diária necessária</span>
-                  <strong>{formatCurrency(selectedBarber.dailyRevenueTarget)}</strong>
-                </div>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-400">Ticket médio hoje</span>
-                  <strong>{formatCurrency(selectedBarber.kpisToday.ticketAvg)}</strong>
-                </div>
+                {selectedBarber.goalPrediction ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-cyan-300/20 bg-cyan-400/10 p-4">
+                      <p className="text-xs text-cyan-100/70">Meta sugerida</p>
+                      <strong className="text-xl">{compactCurrency(selectedBarber.goalPrediction.suggestedTarget)}</strong>
+                    </div>
+                    <div className="rounded-lg border border-cyan-300/20 bg-cyan-400/10 p-4">
+                      <p className="text-xs text-cyan-100/70">Projecao</p>
+                      <strong className="text-xl">{compactCurrency(selectedBarber.goalPrediction.projectedRevenue)}</strong>
+                    </div>
+                    <div className="rounded-lg border border-cyan-300/20 bg-cyan-400/10 p-4">
+                      <p className="text-xs text-cyan-100/70">Oportunidade</p>
+                      <strong className="text-xl">{compactCurrency(selectedBarber.goalPrediction.upsellOpportunity)}</strong>
+                    </div>
+                    <div className="rounded-lg border border-cyan-300/20 bg-cyan-400/10 p-4">
+                      <p className="text-xs text-cyan-100/70">Confianca</p>
+                      <strong className="text-xl capitalize">{selectedBarber.goalPrediction.confidence}</strong>
+                    </div>
+                    <p className="sm:col-span-2 text-xs leading-relaxed text-cyan-100/65">
+                      Base: {selectedBarber.goalPrediction.basis.appointmentsCount} agendamentos, ticket efetivo {formatCurrency(selectedBarber.goalPrediction.basis.effectiveTicket)} e {selectedBarber.goalPrediction.basis.remainingDays} dias restantes.
+                    </p>
+                  </div>
+                ) : (
+                  <EmptyState text="Crie metas previstas para liberar a leitura de projecao por barbeiro." />
+                )}
               </div>
-              <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-800">
-                <div
-                  className={selectedBarber.tone === 'ok' ? 'h-full bg-emerald-400' : selectedBarber.tone === 'attention' ? 'h-full bg-amber-400' : 'h-full bg-rose-400'}
-                  style={{ width: `${progressWidth}%` }}
-                />
-              </div>
-              <p className="mt-2 text-xs text-zinc-400">{formatPercent(selectedBarber.progressPercent)} da meta</p>
             </section>
           </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <div className="mb-5 flex items-center justify-between">
+        <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-zinc-400">Plano de ação</p>
-                <h2 className="text-2xl font-black">O que precisa fazer</h2>
+                <p className="text-sm font-bold text-[#f8e4b5]">Historico AppBarber</p>
+                <h2 className="text-2xl font-black">Curva de receita</h2>
               </div>
-              <ClipboardList className="h-6 w-6 text-gold" />
+              <LineChart className="h-6 w-6 text-white/50" />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {actionCards.map(({ label, value, icon: Icon }) => {
-                const tone = getActionTone(value);
-                return (
-                  <div key={label} className={`rounded-lg border p-4 ${toneStyles[tone]}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4" />
-                        <span className="text-sm font-medium">{label}</span>
-                      </div>
-                      <strong className="text-3xl font-black">{value}</strong>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {historicalRevenue?.warning && (
+              <div className="mb-4 rounded-lg border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-100">
+                {historicalRevenue.warning}
+              </div>
+            )}
+            {historyValues.length > 0 ? <Sparkline values={historyValues} labels={historyLabels} /> : <EmptyState text="Historico ainda insuficiente para montar curva de receita." />}
           </div>
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <div className="mb-5 flex items-center justify-between">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-zinc-400">Indicações para faturar mais</p>
-                <h2 className="text-2xl font-black">Próximas ações</h2>
+                <p className="text-sm font-bold text-[#f8e4b5]">Servicos</p>
+                <h2 className="text-2xl font-black">Onde o dinheiro esta entrando</h2>
+              </div>
+              <PieChart className="h-6 w-6 text-white/50" />
+            </div>
+            <ServiceChart services={data.appbarber?.topServices || []} />
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-[#f8e4b5]">Indicacoes</p>
+                <h2 className="text-2xl font-black">Proximas acoes para {toShortName(selectedBarber.barberName)}</h2>
               </div>
               <Zap className="h-6 w-6 text-amber-300" />
             </div>
@@ -659,129 +1044,93 @@ export default function BarberGoalsDashboard() {
               {selectedIndications.map(({ title, text, tone, icon: Icon }) => (
                 <div key={title} className={`rounded-lg border p-4 ${toneStyles[tone]}`}>
                   <div className="mb-2 flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-4 w-4 shrink-0" />
                     <h3 className="font-bold">{title}</h3>
                   </div>
-                  <p className="text-sm opacity-90">{text}</p>
+                  <p className="text-sm leading-relaxed opacity-90">{text}</p>
                 </div>
               ))}
             </div>
           </div>
-        </section>
 
-        {historicalRevenue && (
-          <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-zinc-400">Base histórica</p>
-                <h2 className="text-2xl font-black">Últimos meses por barbeiro</h2>
+                <p className="text-sm font-bold text-[#f8e4b5]">Agenda</p>
+                <h2 className="text-2xl font-black">Proximos horarios</h2>
               </div>
-              {historicalRevenue.warning && (
-                <span className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
-                  {historicalRevenue.warning}
-                </span>
-              )}
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-left text-sm">
-                  <thead className="text-xs uppercase text-zinc-500">
-                    <tr className="border-b border-zinc-800">
-                      <th className="py-3 pr-3">Barbeiro</th>
-                      <th className="py-3 pr-3">Média</th>
-                      <th className="py-3 pr-3">Total</th>
-                      <th className="py-3 pr-3">Atend.</th>
-                      <th className="py-3 pr-3">Confiança</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(historicalRevenue.byBarber || []).slice(0, 8).map((barber) => (
-                      <tr key={barber.barberName} className="border-b border-zinc-800/70">
-                        <td className="py-3 pr-3 font-semibold text-zinc-100">{barber.barberName}</td>
-                        <td className="py-3 pr-3 text-zinc-300">{formatCurrency(barber.averageRevenue)}</td>
-                        <td className="py-3 pr-3 text-zinc-300">{formatCurrency(barber.totalRevenue)}</td>
-                        <td className="py-3 pr-3 text-zinc-300">{barber.totalAppointments}</td>
-                        <td className="py-3 pr-3">
-                          <span className={`rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${
-                            barber.confidence === 'alta'
-                              ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
-                              : barber.confidence === 'média'
-                                ? 'border-amber-400/30 bg-amber-500/10 text-amber-100'
-                                : 'border-rose-400/30 bg-rose-500/10 text-rose-100'
-                          }`}>
-                            {barber.confidence}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="font-black">Histórico do selecionado</h3>
-                  <BarChart3 className="h-5 w-5 text-cyan-300" />
-                </div>
-                {!selectedHistory ? (
-                  <p className="text-sm text-zinc-400">Sem histórico mensal suficiente para este barbeiro.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {selectedHistory.months.map((month) => (
-                      <div key={month.monthRef} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-semibold capitalize">{month.label}</p>
-                            <p className="text-xs text-zinc-400">{month.appointments} atend. • ticket {formatCurrency(month.ticketAvg)}</p>
-                          </div>
-                          <strong>{formatCurrency(month.revenue)}</strong>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section className="grid gap-4 xl:grid-cols-2">
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-black">Serviços mais puxados</h2>
-              <Scissors className="h-5 w-5 text-zinc-300" />
-            </div>
-            <div className="space-y-3">
-              {(data.appbarber?.topServices || []).slice(0, 7).map((service) => (
-                <div key={service.name} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
-                  <span className="truncate text-zinc-200">{service.name}</span>
-                  <span className="shrink-0 text-zinc-400">{service.appointments} ag. • {formatCurrency(service.revenue)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-black">Agenda do selecionado</h2>
-              <Clock3 className="h-5 w-5 text-zinc-300" />
+              <Calendar className="h-6 w-6 text-white/50" />
             </div>
             {selectedAppointments.length === 0 ? (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
-                Nenhum próximo horário encontrado para este barbeiro.
-              </div>
+              <EmptyState text="Nenhum proximo horario encontrado para este barbeiro." />
             ) : (
               <div className="space-y-3">
                 {selectedAppointments.map((appointment) => (
-                  <div key={appointment.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
+                  <div key={appointment.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-white">{appointment.service}</p>
+                      <p className="mt-1 text-white/45">{appointment.date} as {appointment.time || '--:--'}</p>
+                    </div>
+                    <span className="h-fit rounded-full border border-white/10 bg-white/[0.035] px-2.5 py-1 text-xs font-bold text-white/70">
+                      {formatCurrency(appointment.value || 0)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-[#f8e4b5]">Resumo historico</p>
+                <h2 className="text-2xl font-black">Ultimos meses</h2>
+              </div>
+              <BarChart3 className="h-6 w-6 text-white/50" />
+            </div>
+            {historicalRevenue?.byBarber?.length ? (
+              <div className="space-y-3">
+                {historicalRevenue.byBarber.slice(0, 6).map((barber) => (
+                  <div key={barber.barberName} className="grid grid-cols-[1fr_auto] gap-3 border-b border-white/10 pb-3 last:border-b-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-white">{barber.barberName}</p>
+                      <p className="text-xs text-white/45">{barber.totalAppointments} atendimentos • {barber.confidence}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-white">{compactCurrency(barber.averageRevenue)}</p>
+                      <p className="text-xs text-white/45">media</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState text="Sem base historica suficiente para listar barbeiros." />
+            )}
+          </div>
+
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-[#f8e4b5]">WhatsApp</p>
+                <h2 className="text-2xl font-black">Confirmacoes da agenda</h2>
+              </div>
+              <MessageCircle className="h-6 w-6 text-white/50" />
+            </div>
+            {data.confirmations.length === 0 ? (
+              <EmptyState text="Nenhuma confirmacao pendente no momento." />
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {data.confirmations.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-white/10 bg-black/25 p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-bold">{appointment.service}</p>
-                        <p className="text-zinc-400">{appointment.date} às {appointment.time || '--:--'}</p>
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-white">{item.clientName}</p>
+                        <p className="mt-1 text-sm text-white/45">Horario {item.timeLabel}</p>
                       </div>
-                      <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300">
-                        {formatCurrency(appointment.value || 0)}
+                      <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-bold ${confirmationStyles[item.status]}`}>
+                        {item.status === 'confirmed' ? 'confirmado' : item.status === 'pending' ? 'pendente' : 'sem resposta'}
                       </span>
                     </div>
                   </div>
@@ -791,36 +1140,28 @@ export default function BarberGoalsDashboard() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 md:p-6">
-          <div className="mb-5 flex items-center justify-between gap-3">
+        <section className="rounded-lg border border-[#c5a059]/25 bg-[#c5a059]/[0.06] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+          <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto_auto] lg:items-center">
             <div>
-              <h2 className="text-xl font-bold">Confirmações no WhatsApp</h2>
-              <p className="text-sm text-zinc-400">Acompanhamento rápido da agenda.</p>
+              <p className="text-sm font-bold text-[#f8e4b5]">Fechamento da reuniao</p>
+              <h2 className="text-2xl font-black">Proximo passo da equipe</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/58">
+                Melhor performance atual: {bestBarber ? toShortName(bestBarber.barberName) : 'equipe'} com {bestBarber ? compactCurrency(bestBarber.realizedMonth) : compactCurrency(0)} no mes. O foco agora e reduzir o gap de {compactCurrency(teamTotals.totalGap)} com agenda, complemento e recorrencia.
+              </p>
             </div>
-            <MessageCircle className="h-5 w-5 text-zinc-300" />
+            <div className="rounded-lg border border-white/10 bg-black/25 p-4 text-center">
+              <p className="text-xs text-white/45">Comissao diaria alvo</p>
+              <strong className="text-xl">{compactCurrency(teamTotals.totalCommissionTarget)}</strong>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/25 p-4 text-center">
+              <p className="text-xs text-white/45">Financeiro AppBarber</p>
+              <strong className="text-xl">{compactCurrency(appbarberSummary?.financialBalance || 0)}</strong>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/25 p-4 text-center">
+              <p className="text-xs text-white/45">Assinaturas</p>
+              <strong className="text-xl">{appbarberSummary?.subscriptionAppointments || 0}</strong>
+            </div>
           </div>
-
-          {data.confirmations.length === 0 ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
-              Nenhuma confirmação pendente no momento.
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {data.confirmations.map((item) => (
-                <div key={item.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{item.clientName}</p>
-                      <p className="text-sm text-zinc-400">Horário {item.timeLabel}</p>
-                    </div>
-                    <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide ${confirmationStyles[item.status]}`}>
-                      {item.status === 'confirmed' ? 'confirmado' : item.status === 'pending' ? 'pendente' : 'sem resposta'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </section>
       </main>
     </div>
