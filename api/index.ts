@@ -285,17 +285,49 @@ const buildGoalPrediction = ({
 };
 
 const getAppBarberConfig = () => {
-  const apiKey = process.env.APPBARBER_API_KEY;
+  const apiKey = process.env.APPBARBER_API_KEY || '';
   const establishmentCode = toNumber(process.env.APPBARBER_ESTABLISHMENT_CODE);
   const baseUrl = (process.env.APPBARBER_API_BASE_URL || 'https://api.appbarber.com').replace(/\/+$/, '');
   const proxyUrl = (process.env.APPBARBER_PROXY_URL || '').replace(/\/+$/, '');
+  const proxyToken = process.env.APPBARBER_PROXY_TOKEN || process.env.N8N_APPBARBER_PROXY_TOKEN || '';
+  const source = proxyUrl ? 'n8n-proxy' : 'direct';
 
-  if (!apiKey || !establishmentCode) {
+  if (!establishmentCode || (!apiKey && !proxyUrl)) {
     return null;
   }
 
-  return { apiKey, establishmentCode, baseUrl, proxyUrl };
+  return { apiKey, establishmentCode, baseUrl, proxyUrl, proxyToken, source };
 };
+
+const getAppBarberConfigStatus = () => {
+  const config = getAppBarberConfig();
+  return {
+    configured: !!config,
+    source: config?.source || 'not-configured',
+    baseUrl: config?.baseUrl || process.env.APPBARBER_API_BASE_URL || 'https://api.appbarber.com',
+    establishmentCode: config?.establishmentCode || toNumber(process.env.APPBARBER_ESTABLISHMENT_CODE),
+    proxyEnabled: !!config?.proxyUrl,
+    proxyUrlConfigured: !!(process.env.APPBARBER_PROXY_URL || '').trim(),
+    proxyTokenConfigured: !!(process.env.APPBARBER_PROXY_TOKEN || process.env.N8N_APPBARBER_PROXY_TOKEN || '').trim(),
+    directApiKeyConfigured: !!(process.env.APPBARBER_API_KEY || '').trim(),
+  };
+};
+
+const appBarberProxyPayload = (
+  config: NonNullable<ReturnType<typeof getAppBarberConfig>>,
+  path: string,
+  method: string,
+  query: Record<string, any>,
+  body: any,
+) => ({
+  path,
+  method,
+  query: { establishment_code: config.establishmentCode, ...query },
+  body,
+  targetBaseUrl: config.baseUrl,
+  establishment_code: config.establishmentCode,
+  source: 'fonseca-site',
+});
 
 const appBarberRequest = async (
   path: string,
@@ -320,18 +352,27 @@ const appBarberRequest = async (
   });
 
   const isProxy = !!config.proxyUrl;
+  if (!isProxy && !config.apiKey) {
+    const error: any = new Error('AppBarber direto exige APPBARBER_API_KEY. Configure APPBARBER_PROXY_URL para usar o n8n.');
+    error.status = 500;
+    throw error;
+  }
+
   const url = isProxy ? config.proxyUrl : `${config.baseUrl}${path}${search.size > 0 ? `?${search.toString()}` : ''}`;
+  const headers: Record<string, string> = {
+    'X-AppBarber-Target-Base-URL': config.baseUrl,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'User-Agent': 'FonsecaBarberClub/1.0 (+https://fonsecabarberclub.com)',
+  };
+  if (config.apiKey) headers['X-API-Key'] = config.apiKey;
+  if (config.proxyToken) headers['X-N8N-Proxy-Token'] = config.proxyToken;
+
   const response = await fetch(url, {
     method: isProxy ? 'POST' : method,
-    headers: {
-      'X-API-Key': config.apiKey,
-      'X-AppBarber-Target-Base-URL': config.baseUrl,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'User-Agent': 'FonsecaBarberClub/1.0 (+https://fonsecabarberclub.com)',
-    },
+    headers,
     body: isProxy
-      ? JSON.stringify({ path, method, query: { establishment_code: config.establishmentCode, ...query }, body })
+      ? JSON.stringify(appBarberProxyPayload(config, path, method, query, body))
       : body ? JSON.stringify(body) : undefined,
   });
 
@@ -368,6 +409,75 @@ const safeAppBarberRequest = async (path: string, options: { method?: string; qu
   } catch (error: any) {
     return { error: error.message, details: error.payload || null, data: [] };
   }
+};
+
+const appBarberDatasetMap: Record<string, { path: string; method?: string; query?: (input: Record<string, any>) => Record<string, any> }> = {
+  services: {
+    path: '/v1/services',
+    query: (input) => ({
+      type: input.type || 1,
+      professional_code: input.professional_code,
+      service_code: input.service_code,
+    }),
+  },
+  professionals: {
+    path: '/v1/professional-list',
+  },
+  'professional-services': {
+    path: '/v1/professionals',
+    query: (input) => ({
+      type: input.type || 1,
+      service_code: input.service_code,
+      combo_code: input.combo_code,
+      professional_code: input.professional_code,
+    }),
+  },
+  appointments: {
+    path: '/v1/appointments/history',
+    query: (input) => ({
+      start_date: input.start_date,
+      end_date: input.end_date,
+      professional_code: input.professional_code,
+      status: input.status,
+    }),
+  },
+  financial: {
+    path: '/v1/reports/financial',
+    query: (input) => ({
+      start_date: input.start_date,
+      end_date: input.end_date,
+    }),
+  },
+};
+
+const listAppBarberDatasets = () => Object.keys(appBarberDatasetMap);
+
+const hasValidAppBarberDataToken = (req: express.Request) => {
+  const expected = process.env.APPBARBER_DATA_TOKEN || '';
+  if (!expected) return false;
+  const provided = String(req.headers['x-appbarber-data-token'] || req.query.token || '');
+  return provided === expected;
+};
+
+const sanitizeAppBarberDataset = (dataset: string, payload: any) => {
+  if (dataset !== 'appointments') return payload;
+
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  return {
+    ...payload,
+    data: rows.map((item: any) => ({
+      invoice_code: item.invoice_code,
+      scheduling_code: item.scheduling_code,
+      employee_name: item.employee_name,
+      service_value: item.service_value,
+      scheduling_start: item.scheduling_start,
+      scheduling_status: item.scheduling_status,
+      service_description: item.service_description,
+      subscription_association: item.subscription_association,
+      recurring_schedule: item.recurring_schedule,
+      client_reference: item.client_name ? toStableUuid(`appbarber-client:${item.client_name}:${normalizePhone(item.client_phone)}`) : null,
+    })),
+  };
 };
 
 const buildAppBarberSnapshot = async () => {
@@ -811,13 +921,67 @@ app.get(["/api/supabase-config", "/supabase-config"], (req, res) => {
 });
 
 app.get(["/api/appbarber/config", "/appbarber/config"], (req, res) => {
-  const config = getAppBarberConfig();
+  res.json(getAppBarberConfigStatus());
+});
+
+app.get(["/api/appbarber/n8n/status", "/appbarber/n8n/status"], async (req, res) => {
+  const status = getAppBarberConfigStatus();
+  if (!status.configured) {
+    return res.status(500).json({
+      ...status,
+      datasets: listAppBarberDatasets(),
+      error: 'AppBarber/n8n nao configurado. Configure APPBARBER_ESTABLISHMENT_CODE e APPBARBER_PROXY_URL.',
+    });
+  }
+
+  const probe = await safeAppBarberRequest('/v1/professional-list');
   res.json({
-    configured: !!config,
-    baseUrl: config?.baseUrl || process.env.APPBARBER_API_BASE_URL || 'https://api.appbarber.com',
-    establishmentCode: config?.establishmentCode || toNumber(process.env.APPBARBER_ESTABLISHMENT_CODE),
-    proxyEnabled: !!config?.proxyUrl,
+    ...status,
+    datasets: listAppBarberDatasets(),
+    health: probe?.error ? 'degraded' : 'ok',
+    probe: {
+      error: probe?.error || null,
+      rows: Array.isArray(probe?.data) ? probe.data.length : 0,
+    },
   });
+});
+
+app.get(["/api/appbarber/data/:dataset", "/appbarber/data/:dataset"], async (req, res) => {
+  const dataset = String(req.params.dataset || '').trim();
+  const definition = appBarberDatasetMap[dataset];
+  if (!definition) {
+    return res.status(404).json({
+      error: 'Dataset AppBarber nao permitido.',
+      dataset,
+      allowedDatasets: listAppBarberDatasets(),
+    });
+  }
+
+  try {
+    const query = definition.query ? definition.query(req.query as Record<string, any>) : {};
+    const data = await appBarberRequest(definition.path, {
+      method: definition.method || 'GET',
+      query,
+    });
+    const rawAllowed = hasValidAppBarberDataToken(req);
+    const result = rawAllowed && req.query.raw === '1' ? data : sanitizeAppBarberDataset(dataset, data);
+
+    res.json({
+      dataset,
+      source: getAppBarberConfigStatus().source,
+      generatedAt: new Date().toISOString(),
+      sanitized: !(rawAllowed && req.query.raw === '1'),
+      request: { path: definition.path, query },
+      result,
+    });
+  } catch (error: any) {
+    res.status(error.status || 500).json({
+      dataset,
+      source: getAppBarberConfigStatus().source,
+      error: error.message,
+      details: error.payload,
+    });
+  }
 });
 
 app.get(["/api/appbarber/services", "/appbarber/services"], async (req, res) => {
