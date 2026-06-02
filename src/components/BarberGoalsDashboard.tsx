@@ -37,6 +37,46 @@ import {
 } from '../lib/opsFallback';
 
 type Tone = 'ok' | 'attention' | 'below';
+type PeriodPreset = 'today' | '7d' | 'month' | 'last_month' | '30d' | '90d' | 'custom';
+
+interface BarberPeriodSummaryItem {
+  barberName: string;
+  appointments: number;
+  revenue: number;
+  subscriptions: number;
+  paidAppointments: number;
+  zeroValueAppointments: number;
+  subscriptionPercent: number;
+  ticketAvg: number;
+  paidTicketAvg: number;
+  revenuePerActiveDay: number;
+  activeDays: number;
+  topServices: Array<{ name: string; appointments: number; revenue: number }>;
+  statuses: Array<{ name: string; count: number }>;
+}
+
+interface BarberPeriodSummaryResponse {
+  source: string;
+  generatedAt: string;
+  period: {
+    preset: string;
+    startDate: string;
+    endDate: string;
+  };
+  summary: {
+    appointments: number;
+    revenue: number;
+    subscriptions: number;
+    paidAppointments: number;
+    zeroValueAppointments: number;
+    averageTicket: number;
+    paidAverageTicket: number;
+    barbers: number;
+  };
+  barbers: BarberPeriodSummaryItem[];
+  topServices: Array<{ name: string; appointments: number; revenue: number }>;
+  warning?: string | null;
+}
 
 const confirmationStyles: Record<string, string> = {
   pending: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
@@ -63,6 +103,42 @@ const toneColors: Record<Tone, string> = {
 };
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
+
+const toDateInput = (date: Date) => date.toISOString().slice(0, 10);
+
+const addDaysLocal = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const getPeriodRange = (preset: PeriodPreset) => {
+  const today = new Date();
+  if (preset === 'today') return { startDate: toDateInput(today), endDate: toDateInput(today) };
+  if (preset === '7d') return { startDate: toDateInput(addDaysLocal(today, -6)), endDate: toDateInput(today) };
+  if (preset === '30d') return { startDate: toDateInput(addDaysLocal(today, -29)), endDate: toDateInput(today) };
+  if (preset === '90d') return { startDate: toDateInput(addDaysLocal(today, -89)), endDate: toDateInput(today) };
+  if (preset === 'last_month') {
+    return {
+      startDate: toDateInput(new Date(today.getFullYear(), today.getMonth() - 1, 1)),
+      endDate: toDateInput(new Date(today.getFullYear(), today.getMonth(), 0)),
+    };
+  }
+  return {
+    startDate: toDateInput(new Date(today.getFullYear(), today.getMonth(), 1)),
+    endDate: toDateInput(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+  };
+};
+
+const periodOptions: Array<{ value: PeriodPreset; label: string }> = [
+  { value: 'today', label: 'Hoje' },
+  { value: '7d', label: '7 dias' },
+  { value: 'month', label: 'Mes atual' },
+  { value: 'last_month', label: 'Mes passado' },
+  { value: '30d', label: '30 dias' },
+  { value: '90d', label: '90 dias' },
+  { value: 'custom', label: 'Personalizado' },
+];
 
 const normalizeCommissionRate = (value: number) => {
   if (!value || Math.abs(value - 0.4) < 0.0001) return 0.45;
@@ -427,6 +503,10 @@ export default function BarberGoalsDashboard() {
   const [savingGoal, setSavingGoal] = useState(false);
   const [creatingPredictions, setCreatingPredictions] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('month');
+  const [periodRange, setPeriodRange] = useState(() => getPeriodRange('month'));
+  const [periodSummary, setPeriodSummary] = useState<BarberPeriodSummaryResponse | null>(null);
+  const [periodLoading, setPeriodLoading] = useState(false);
   const [goalDraft, setGoalDraft] = useState({
     targetTotal: 0,
     guaranteedSubscription: 0,
@@ -452,9 +532,32 @@ export default function BarberGoalsDashboard() {
     }
   };
 
+  const loadPeriodSummary = async (preset = periodPreset, range = periodRange) => {
+    setPeriodLoading(true);
+    try {
+      const params = new URLSearchParams({
+        period: preset,
+        start_date: range.startDate,
+        end_date: range.endDate,
+      });
+      const res = await fetch(`/api/ops/barbers/summary?${params.toString()}`);
+      if (!res.ok) throw new Error('Falha ao carregar resumo do periodo');
+      const json = (await res.json()) as BarberPeriodSummaryResponse;
+      setPeriodSummary(json);
+    } catch (err: any) {
+      setError(err?.message || 'Nao foi possivel carregar o resumo do periodo.');
+    } finally {
+      setPeriodLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDashboard();
   }, []);
+
+  useEffect(() => {
+    loadPeriodSummary(periodPreset, periodRange);
+  }, [periodPreset, periodRange.startDate, periodRange.endDate]);
 
   const rankedBarbers = useMemo(() => sortByRevenue(data.barbers), [data.barbers]);
   const selectedBarber = useMemo<BarberDashboardItem | undefined>(
@@ -490,6 +593,9 @@ export default function BarberGoalsDashboard() {
   const selectedIndications = selectedBarber ? buildIndications(selectedBarber, data) : [];
   const selectedAppointments = selectedBarber ? findAppointmentsFor(data, selectedBarber.barberName).slice(0, 5) : [];
   const selectedHistory = historicalRevenue?.byBarber.find(
+    (item) => item.barberName.trim().toLowerCase() === selectedBarber?.barberName.trim().toLowerCase(),
+  );
+  const selectedPeriodSummary = periodSummary?.barbers.find(
     (item) => item.barberName.trim().toLowerCase() === selectedBarber?.barberName.trim().toLowerCase(),
   );
   const historyMonths = selectedHistory?.months?.slice().reverse() || [];
@@ -661,6 +767,13 @@ export default function BarberGoalsDashboard() {
     },
   ];
 
+  const changePeriodPreset = (preset: PeriodPreset) => {
+    setPeriodPreset(preset);
+    if (preset !== 'custom') {
+      setPeriodRange(getPeriodRange(preset));
+    }
+  };
+
   return (
     <div className="goals-premium-bg min-h-screen overflow-x-hidden bg-[#070707] text-white">
       <header className="relative border-b border-white/10 bg-black/40 backdrop-blur-xl">
@@ -732,6 +845,184 @@ export default function BarberGoalsDashboard() {
               <MetricTile {...card} />
             </React.Fragment>
           ))}
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl md:p-6">
+          <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <p className="text-sm font-bold text-[#f8e4b5]">Resumo por periodo</p>
+              <h2 className="text-2xl font-black">Escolha o periodo e veja cada barbeiro</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/52">
+                Os numeros abaixo vêm do AppBarber via n8n e recalculam faturamento, atendimentos, assinaturas e ticket medio para o intervalo escolhido.
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[460px]">
+              <label className="text-sm font-semibold text-white/62">
+                Inicio
+                <input
+                  type="date"
+                  value={periodRange.startDate}
+                  onChange={(event) => {
+                    setPeriodPreset('custom');
+                    setPeriodRange((prev) => ({ ...prev, startDate: event.target.value }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-white outline-none transition-colors focus:border-[#c5a059]/70"
+                />
+              </label>
+              <label className="text-sm font-semibold text-white/62">
+                Fim
+                <input
+                  type="date"
+                  value={periodRange.endDate}
+                  onChange={(event) => {
+                    setPeriodPreset('custom');
+                    setPeriodRange((prev) => ({ ...prev, endDate: event.target.value }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-white outline-none transition-colors focus:border-[#c5a059]/70"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mb-5 flex flex-wrap gap-2">
+            {periodOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => changePeriodPreset(option.value)}
+                className={`rounded-lg border px-3 py-2 text-sm font-bold transition-all ${
+                  periodPreset === option.value
+                    ? 'border-[#c5a059]/70 bg-[#c5a059]/20 text-[#f8e4b5]'
+                    : 'border-white/10 bg-black/20 text-white/68 hover:border-white/25 hover:text-white'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              onClick={() => loadPeriodSummary(periodPreset, periodRange)}
+              disabled={periodLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-bold text-cyan-100 transition-all hover:bg-cyan-400/20 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${periodLoading ? 'animate-spin' : ''}`} />
+              Atualizar periodo
+            </button>
+          </div>
+
+          {periodSummary?.warning && (
+            <div className="mb-5 rounded-lg border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100">
+              {periodSummary.warning}
+            </div>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-lg border border-white/10 bg-black/25 p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-white/45">Equipe no periodo</p>
+                  <h3 className="text-xl font-black">
+                    {periodSummary?.period.startDate || periodRange.startDate} a {periodSummary?.period.endDate || periodRange.endDate}
+                  </h3>
+                </div>
+                <BarChart3 className="h-5 w-5 text-[#f8e4b5]" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                  <p className="text-xs text-white/45">Faturamento</p>
+                  <strong className="text-2xl">{compactCurrency(periodSummary?.summary.revenue || 0)}</strong>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                  <p className="text-xs text-white/45">Atendimentos</p>
+                  <strong className="text-2xl">{periodSummary?.summary.appointments || 0}</strong>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                  <p className="text-xs text-white/45">Ticket medio</p>
+                  <strong className="text-2xl">{compactCurrency(periodSummary?.summary.averageTicket || 0)}</strong>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                  <p className="text-xs text-white/45">Assinaturas</p>
+                  <strong className="text-2xl">{periodSummary?.summary.subscriptions || 0}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#c5a059]/25 bg-[#c5a059]/[0.065] p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-[#f8e4b5]/70">Barbeiro selecionado no periodo</p>
+                  <h3 className="text-xl font-black">{selectedBarber.barberName}</h3>
+                </div>
+                <Users className="h-5 w-5 text-[#f8e4b5]" />
+              </div>
+              {selectedPeriodSummary ? (
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs text-white/45">Receita</p>
+                    <strong className="text-xl">{compactCurrency(selectedPeriodSummary.revenue)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs text-white/45">Atend.</p>
+                    <strong className="text-xl">{selectedPeriodSummary.appointments}</strong>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs text-white/45">Ticket</p>
+                    <strong className="text-xl">{compactCurrency(selectedPeriodSummary.ticketAvg)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs text-white/45">Por dia</p>
+                    <strong className="text-xl">{compactCurrency(selectedPeriodSummary.revenuePerActiveDay)}</strong>
+                  </div>
+                  <div className="sm:col-span-4 rounded-lg border border-white/10 bg-black/20 p-3">
+                    <p className="text-xs font-bold text-white/45">Serviços mais fortes</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {selectedPeriodSummary.topServices.slice(0, 4).map((service) => (
+                        <div key={service.name} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="truncate text-white/75">{service.name}</span>
+                          <strong>{compactCurrency(service.revenue)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState text={periodLoading ? 'Carregando resumo do barbeiro...' : 'Sem dados desse barbeiro no periodo escolhido.'} />
+              )}
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left text-sm">
+              <thead className="text-xs uppercase text-white/42">
+                <tr className="border-b border-white/10">
+                  <th className="py-3 pr-3">Barbeiro</th>
+                  <th className="py-3 pr-3">Receita</th>
+                  <th className="py-3 pr-3">Atend.</th>
+                  <th className="py-3 pr-3">Ticket</th>
+                  <th className="py-3 pr-3">Assinaturas</th>
+                  <th className="py-3 pr-3">Dias ativos</th>
+                  <th className="py-3 pr-3">Principal serviço</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(periodSummary?.barbers || []).map((barber) => (
+                  <tr key={barber.barberName} className="border-b border-white/10 last:border-b-0">
+                    <td className="py-3 pr-3 font-bold text-white">{barber.barberName}</td>
+                    <td className="py-3 pr-3 text-white/78">{compactCurrency(barber.revenue)}</td>
+                    <td className="py-3 pr-3 text-white/68">{barber.appointments}</td>
+                    <td className="py-3 pr-3 text-white/68">{compactCurrency(barber.ticketAvg)}</td>
+                    <td className="py-3 pr-3 text-white/68">{barber.subscriptions} ({barber.subscriptionPercent}%)</td>
+                    <td className="py-3 pr-3 text-white/68">{barber.activeDays}</td>
+                    <td className="py-3 pr-3 text-white/68">{barber.topServices[0]?.name || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!periodSummary?.barbers?.length && (
+              <div className="mt-3">
+                <EmptyState text={periodLoading ? 'Carregando barbeiros do periodo...' : 'Nenhum barbeiro encontrado nesse periodo.'} />
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">

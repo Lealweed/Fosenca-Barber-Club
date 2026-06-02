@@ -238,6 +238,171 @@ const buildHistoricalRevenue = async (monthsBack = 3) => {
   };
 };
 
+const getPeriodFromQuery = (query: Record<string, any>) => {
+  const today = new Date();
+  const preset = String(query.period || 'month');
+  let start = new Date(today.getFullYear(), today.getMonth(), 1);
+  let end = today;
+
+  if (preset === 'today') {
+    start = today;
+    end = today;
+  } else if (preset === '7d') {
+    start = addDays(today, -6);
+    end = today;
+  } else if (preset === '30d') {
+    start = addDays(today, -29);
+    end = today;
+  } else if (preset === 'last_month') {
+    start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    end = new Date(today.getFullYear(), today.getMonth(), 0);
+  } else if (preset === '90d') {
+    start = addDays(today, -89);
+    end = today;
+  } else if (preset === 'month') {
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+    end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  }
+
+  const startDate = toDateKey(query.start_date || query.startDate) || dateKey(start);
+  const endDate = toDateKey(query.end_date || query.endDate) || dateKey(end);
+  return { preset, startDate, endDate };
+};
+
+const getMonthRangesBetween = (startDate: string, endDate: string) => {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  const ranges: Array<{ startDate: string; endDate: string }> = [];
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+
+  while (cursor <= end) {
+    ranges.push({
+      startDate: dateKey(new Date(cursor.getFullYear(), cursor.getMonth(), 1)),
+      endDate: dateKey(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)),
+    });
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+
+  return ranges;
+};
+
+const buildBarberPeriodSummary = async (query: Record<string, any> = {}) => {
+  const period = getPeriodFromQuery(query);
+  const queryRanges = getMonthRangesBetween(period.startDate, period.endDate);
+  const responses = await Promise.all(
+    queryRanges.map((range) =>
+      safeAppBarberRequest('/v1/appointments/history', {
+        query: {
+          start_date: range.startDate,
+          end_date: range.endDate,
+          professional_code: query.professional_code,
+          status: query.status,
+        },
+      })
+    ),
+  );
+
+  const rawSourceAppointments = responses.flatMap((response) => (Array.isArray(response?.data) ? response.data : []));
+  const rawAppointments = rawSourceAppointments.filter((item: any) => {
+    const normalized = normalizeAppointment(item);
+    return normalized.date >= period.startDate && normalized.date <= period.endDate;
+  });
+  const normalizedAppointments = rawAppointments.map(normalizeAppointment);
+  const barberMap = new Map<string, any>();
+  const serviceMap = new Map<string, any>();
+
+  rawAppointments.forEach((raw) => {
+    const appointment = normalizeAppointment(raw);
+    const key = normalizeName(appointment.professional);
+    const current = barberMap.get(key) || {
+      barberName: appointment.professional,
+      appointments: 0,
+      revenue: 0,
+      subscriptions: 0,
+      paidAppointments: 0,
+      zeroValueAppointments: 0,
+      ticketAvg: 0,
+      services: new Map<string, any>(),
+      status: new Map<string, number>(),
+      days: new Set<string>(),
+    };
+
+    current.appointments += 1;
+    current.revenue += appointment.value;
+    current.subscriptions += appointment.subscription ? 1 : 0;
+    current.paidAppointments += appointment.value > 0 ? 1 : 0;
+    current.zeroValueAppointments += appointment.value <= 0 ? 1 : 0;
+    current.status.set(appointment.status || 'Sem status', (current.status.get(appointment.status || 'Sem status') || 0) + 1);
+    if (appointment.date) current.days.add(appointment.date);
+
+    const service = current.services.get(appointment.service) || { name: appointment.service, appointments: 0, revenue: 0 };
+    service.appointments += 1;
+    service.revenue += appointment.value;
+    current.services.set(appointment.service, service);
+
+    const globalService = serviceMap.get(appointment.service) || { name: appointment.service, appointments: 0, revenue: 0 };
+    globalService.appointments += 1;
+    globalService.revenue += appointment.value;
+    serviceMap.set(appointment.service, globalService);
+
+    barberMap.set(key, current);
+  });
+
+  const barbers = Array.from(barberMap.values())
+    .map((barber: any) => {
+      const services = Array.from(barber.services.values())
+        .map((service: any) => ({ ...service, revenue: Number(service.revenue.toFixed(2)) }))
+        .sort((a: any, b: any) => b.revenue - a.revenue || b.appointments - a.appointments);
+      const statuses = Array.from(barber.status.entries()).map(([name, count]) => ({ name, count }));
+      const activeDays = barber.days.size;
+      const revenue = Number(barber.revenue.toFixed(2));
+
+      return {
+        barberName: barber.barberName,
+        appointments: barber.appointments,
+        revenue,
+        subscriptions: barber.subscriptions,
+        paidAppointments: barber.paidAppointments,
+        zeroValueAppointments: barber.zeroValueAppointments,
+        subscriptionPercent: barber.appointments ? Number(((barber.subscriptions / barber.appointments) * 100).toFixed(1)) : 0,
+        ticketAvg: barber.appointments ? Number((barber.revenue / barber.appointments).toFixed(2)) : 0,
+        paidTicketAvg: barber.paidAppointments ? Number((barber.revenue / barber.paidAppointments).toFixed(2)) : 0,
+        revenuePerActiveDay: activeDays ? Number((barber.revenue / activeDays).toFixed(2)) : revenue,
+        activeDays,
+        topServices: services.slice(0, 5),
+        statuses,
+      };
+    })
+    .sort((a: any, b: any) => b.revenue - a.revenue || b.appointments - a.appointments);
+
+  const totalRevenue = normalizedAppointments.reduce((sum, item) => sum + item.value, 0);
+  const totalSubscriptions = normalizedAppointments.filter((item) => item.subscription).length;
+  const paidAppointments = normalizedAppointments.filter((item) => item.value > 0).length;
+  const topServices = Array.from(serviceMap.values())
+    .map((service: any) => ({ ...service, revenue: Number(service.revenue.toFixed(2)) }))
+    .sort((a: any, b: any) => b.revenue - a.revenue || b.appointments - a.appointments)
+    .slice(0, 8);
+
+  return {
+    source: getAppBarberConfigStatus().source,
+    generatedAt: new Date().toISOString(),
+    period,
+    summary: {
+      appointments: rawAppointments.length,
+      revenue: Number(totalRevenue.toFixed(2)),
+      subscriptions: totalSubscriptions,
+      paidAppointments,
+      zeroValueAppointments: rawAppointments.length - paidAppointments,
+      averageTicket: rawAppointments.length ? Number((totalRevenue / rawAppointments.length).toFixed(2)) : 0,
+      paidAverageTicket: paidAppointments ? Number((totalRevenue / paidAppointments).toFixed(2)) : 0,
+      barbers: barbers.length,
+    },
+    barbers,
+    topServices,
+    warning: responses.find((response) => response?.error)?.error || null,
+  };
+};
+
 const buildGoalPrediction = ({
   realizedToday,
   realizedWeek,
@@ -1343,6 +1508,11 @@ app.get(["/api/ops/history", "/ops/history"], async (req, res) => {
   const months = Math.max(1, Math.min(12, toNumber(req.query.months) || 3));
   const history = await buildHistoricalRevenue(months);
   res.json(history);
+});
+
+app.get(["/api/ops/barbers/summary", "/ops/barbers/summary"], async (req, res) => {
+  const summary = await buildBarberPeriodSummary(req.query as Record<string, any>);
+  res.json(summary);
 });
 
 app.get(["/api/ops/clients/:id", "/ops/clients/:id"], async (req, res) => {
