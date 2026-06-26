@@ -6,9 +6,3 @@ coverage/
 *.log
 .env*
 !.env.example
-
-.vercel
-.env*.local
-*.zip
-fonseca-barber-club/
-supabase/.temp/

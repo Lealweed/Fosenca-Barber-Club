@@ -1,5 +1,6 @@
 {
   "name": "Fonseca Barber Club",
-  "description": "Landing page de alta conversão para a barbearia Fonseca Barber Club, focada em agendamentos via WhatsApp.",
-  "requestFramePermissions": []
+  "description": "Clube de assinatura e barbearia premium. Eleve o seu padrão com planos exclusivos, agendamento de horários e plataforma integrada.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
